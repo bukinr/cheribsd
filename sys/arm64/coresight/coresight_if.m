@@ -56,6 +56,10 @@ METHOD void disable {
 	struct coresight_event *event;
 };
 
+METHOD void dump {
+	device_t dev;
+};
+
 METHOD int read {
 	device_t dev;
 	struct endpoint *endp;
