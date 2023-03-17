@@ -530,11 +530,9 @@ _ipoib=		ipoib
 _iser=		iser
 .endif
 _ipmi=		ipmi
-.if !${MACHINE_CPU:Mcheri}
 _iwlwifi=	iwlwifi
 .if ${MK_SOURCELESS_UCODE} != "no"
 _iwlwififw=	iwlwififw
-.endif
 .endif
 _mlx4=		mlx4
 _mlx5=		mlx5
@@ -871,9 +869,9 @@ _malo=	malo
 .endif
 
 .if !${MACHINE_CPU:Mcheri}
+.endif
 _linuxkpi=	linuxkpi
 _linuxkpi_wlan=	linuxkpi_wlan
-.endif
 
 # Some of these work in hybrid kernels but we disable them for consistency
 # (e.g. we don't want purecap kernels penalised by not having accelerated
