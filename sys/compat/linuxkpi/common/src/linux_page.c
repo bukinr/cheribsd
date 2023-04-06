@@ -259,11 +259,7 @@ __get_user_pages_fast(void * __capability addr, int nr_pages, int write,
 
 long
 get_user_pages_remote(struct task_struct *task, struct mm_struct *mm,
-<<<<<<< HEAD
-    unsigned long start, unsigned long nr_pages, unsigned int gup_flags,
-=======
-    void * __capability start, unsigned long nr_pages, int gup_flags,
->>>>>>> 834f493e5e2b (linuxkpi: Change *get_user_pages*() to take a void * __capability for start.)
+    void * __capability start, unsigned long nr_pages, unsigned int gup_flags,
     struct page **pages, struct vm_area_struct **vmas)
 {
 	vm_map_t map;
@@ -274,13 +270,8 @@ get_user_pages_remote(struct task_struct *task, struct mm_struct *mm,
 }
 
 long
-<<<<<<< HEAD
-get_user_pages(unsigned long start, unsigned long nr_pages,
-    unsigned int gup_flags, struct page **pages, struct vm_area_struct **vmas)
-=======
-get_user_pages(void * __capability start, unsigned long nr_pages, int gup_flags,
+get_user_pages(void * __capability start, unsigned long nr_pages, unsigned int gup_flags,
     struct page **pages, struct vm_area_struct **vmas)
->>>>>>> 834f493e5e2b (linuxkpi: Change *get_user_pages*() to take a void * __capability for start.)
 {
 	vm_map_t map;
 
