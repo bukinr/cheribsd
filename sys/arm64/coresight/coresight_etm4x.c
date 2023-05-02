@@ -75,6 +75,8 @@ etm_prepare(device_t dev, struct coresight_event *event)
 	uint32_t reg;
 	int i;
 
+printf("%s\n", __func__);
+
 	sc = device_get_softc(dev);
 
 	/* Configure ETM */
@@ -200,6 +202,8 @@ etm_enable(device_t dev, struct endpoint *endp,
 
 	sc = device_get_softc(dev);
 
+printf("%s\n", __func__);
+
 	etm_prepare(dev, event);
 
 	/* Enable the trace unit */
@@ -224,6 +228,8 @@ etm_disable(device_t dev, struct endpoint *endp,
 	uint32_t reg;
 
 	sc = device_get_softc(dev);
+
+printf("%s\n", __func__);
 
 	/* Disable the trace unit */
 	bus_write_4(sc->res, TRCPRGCTLR, 0);
