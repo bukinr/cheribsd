@@ -90,6 +90,7 @@ printf("%s%d\n", __func__, device_get_unit(dev));
 	reg |= TRCCONFIGR_INSTP0_LDRSTR;
 	reg |= TRCCONFIGR_COND_ALL;
 	bus_write_4(sc->res, TRCCONFIGR, reg);
+dprintf("%s: TRCCONFIGR is %x\n", __func__, reg);
 
 	/* Disable all event tracing. */
 	bus_write_4(sc->res, TRCEVENTCTL0R, 0);
@@ -103,6 +104,10 @@ printf("%s%d\n", __func__, device_get_unit(dev));
 
 	/* Set a value for the trace ID */
 	bus_write_4(sc->res, TRCTRACEIDR, event->etm.trace_id);
+dprintf("%s: IDR0 is %x\n", __func__, bus_read_4(sc->res, TRCIDR(0)));
+dprintf("%s: IDR1 is %x\n", __func__, bus_read_4(sc->res, TRCIDR(1)));
+dprintf("%s: IDR2 is %x\n", __func__, bus_read_4(sc->res, TRCIDR(2)));
+dprintf("%s: IDR8 is %x\n", __func__, bus_read_4(sc->res, TRCIDR(8)));
 
 	/*
 	 * Disable the timestamp event. The trace unit still generates
@@ -194,6 +199,16 @@ etm_init(device_t dev)
 }
 
 static int
+etm_start(device_t dev, struct endpoint *endp,
+    struct coresight_event *event)
+{
+
+	etm_prepare(dev, event);
+
+	return (0);
+}
+
+static int
 etm_enable(device_t dev, struct endpoint *endp,
     struct coresight_event *event)
 {
@@ -203,8 +218,6 @@ etm_enable(device_t dev, struct endpoint *endp,
 	sc = device_get_softc(dev);
 
 printf("%s%d\n", __func__, device_get_unit(dev));
-
-	etm_prepare(dev, event);
 
 	/* Enable the trace unit */
 	bus_write_4(sc->res, TRCPRGCTLR, TRCPRGCTLR_EN);
@@ -264,6 +277,7 @@ etm_attach(device_t dev)
 static device_method_t etm_methods[] = {
 	/* Coresight interface */
 	DEVMETHOD(coresight_init,	etm_init),
+	DEVMETHOD(coresight_start,	etm_start),
 	DEVMETHOD(coresight_enable,	etm_enable),
 	DEVMETHOD(coresight_disable,	etm_disable),
 	DEVMETHOD_END
