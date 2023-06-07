@@ -83,7 +83,9 @@ __FBSDID("$FreeBSD$");
 #include <vm/vm_object.h>
 #include <vm/vm_extern.h>
 
+#ifdef HWT_HOOKS
 #include <dev/hwt/hwt_hook.h>
+#endif
 
 #if __has_feature(capabilities)
 #include <cheri/cheri.h>
@@ -1309,7 +1311,9 @@ __CONCAT(exec_, __elfN(imgact))(struct image_params *imgp)
 	int32_t osrel;
 	bool free_interp;
 	int error, i, n;
+#ifdef HWT_HOOKS
 	struct proc *p;
+#endif
 
 	hdr = (const Elf_Ehdr *)imgp->image_header;
 
@@ -1612,6 +1616,7 @@ __CONCAT(exec_, __elfN(imgact))(struct image_params *imgp)
 	imgp->interp_start = 0;
 	imgp->interp_end = 0;
 
+#ifdef HWT_HOOKS
 	/* HWT: record main binary. */
 	struct hwt_record_entry ent;
 	if (td->td_proc->p_flag2 & P2_HWT) {
@@ -1620,6 +1625,7 @@ __CONCAT(exec_, __elfN(imgact))(struct image_params *imgp)
 		ent.size = (size_t) (imgp->end_addr - imgp->start_addr);
 		hwt_record(td, HWT_RECORD_EXECUTABLE, &ent);
 	}
+#endif
 
 	if (interp != NULL) {
 		VOP_UNLOCK(imgp->vp);
@@ -1637,6 +1643,7 @@ __CONCAT(exec_, __elfN(imgact))(struct image_params *imgp)
 		if (error != 0)
 			goto ret;
 
+#ifdef HWT_HOOKS
 		/* HWT: Record interp. */
 		struct hwt_record_entry ent;
 		p = td->td_proc;
@@ -1646,6 +1653,7 @@ __CONCAT(exec_, __elfN(imgact))(struct image_params *imgp)
 			ent.size = (size_t) (imgp->interp_end - imgp->interp_start);
 			hwt_record(td, HWT_RECORD_INTERP, &ent);
 		}
+#endif
 	} else
 		addr = imgp->et_dyn_addr;
 
