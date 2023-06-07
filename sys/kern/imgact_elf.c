@@ -83,7 +83,7 @@ __FBSDID("$FreeBSD$");
 #include <vm/vm_object.h>
 #include <vm/vm_extern.h>
 
-#include <dev/hwt/hwtvar1.h>
+#include <dev/hwt/hwt_hook.h>
 
 #if __has_feature(capabilities)
 #include <cheri/cheri.h>
