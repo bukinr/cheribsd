@@ -96,7 +96,7 @@ coresight_event_stop(struct hwt_context *hwt)
 {
 	struct coresight_event *event;
 
-	printf("%s: cpu_id %d\n", __func__, hwt->cpu_id);
+	dprintf("%s: cpu_id %d\n", __func__, hwt->cpu_id);
 
 	event = &cs_event[hwt->cpu_id];
 
@@ -108,8 +108,6 @@ coresight_event_enable(struct hwt_context *hwt)
 {
 	struct coresight_event *event;
 
-	printf("%s: cpu_id %d\n", __func__, hwt->cpu_id);
-
 	event = &cs_event[hwt->cpu_id];
 
 	coresight_enable(hwt->cpu_id, event);
@@ -120,8 +118,6 @@ coresight_event_disable(struct hwt_context *hwt)
 {
 	struct coresight_event *event;
 
-	printf("%s: cpu_id %d\n", __func__, hwt->cpu_id);
-
 	event = &cs_event[hwt->cpu_id];
 
 	coresight_disable(hwt->cpu_id, event);
@@ -131,8 +127,6 @@ static void
 coresight_event_dump(struct hwt_context *hwt)
 {
 	struct coresight_event *event;
-
-	//printf("%s: cpu_id %d\n", __func__, hwt->cpu_id);
 
 	event = &cs_event[hwt->cpu_id];
 
