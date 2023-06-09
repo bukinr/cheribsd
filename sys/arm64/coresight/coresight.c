@@ -55,7 +55,9 @@ coresight_event_init(struct hwt_context *hwt)
 {
 	struct coresight_event *event;
 
+#if 0
 	printf("%s: cpu_id %d\n", __func__, hwt->cpu_id);
+#endif
 
 	event = &cs_event[hwt->cpu_id];
 	memset(event, 0, sizeof(struct coresight_event));
@@ -84,7 +86,9 @@ coresight_event_start(struct hwt_context *hwt)
 {
 	struct coresight_event *event;
 
+#if 0
 	printf("%s: cpu_id %d\n", __func__, hwt->cpu_id);
+#endif
 
 	event = &cs_event[hwt->cpu_id];
 
