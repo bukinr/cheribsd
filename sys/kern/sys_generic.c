@@ -32,8 +32,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	@(#)sys_generic.c	8.5 (Berkeley) 1/21/94
  */
 
 #include <sys/cdefs.h>
@@ -282,7 +280,7 @@ user_readv(struct thread *td, int fd, struct iovec * __capability iovp,
 	if (error)
 		return (error);
 	error = kern_readv(td, fd, auio);
-	free(auio, M_IOV);
+	freeuio(auio);
 	return (error);
 }
 
@@ -330,7 +328,7 @@ user_preadv(struct thread *td, int fd, struct iovec * __capability iovp,
 	if (error)
 		return (error);
 	error = kern_preadv(td, fd, auio, offset);
-	free(auio, M_IOV);
+	freeuio(auio);
 	return (error);
 }
 
@@ -507,7 +505,7 @@ user_writev(struct thread *td, int fd, struct iovec * __capability iovp,
 	if (error)
 		return (error);
 	error = kern_writev(td, fd, auio);
-	free(auio, M_IOV);
+	freeuio(auio);
 	return (error);
 }
 
@@ -555,7 +553,7 @@ user_pwritev(struct thread *td, int fd, struct iovec * __capability iovp,
 	if (error)
 		return (error);
 	error = kern_pwritev(td, fd, auio, offset);
-	free(auio, M_IOV);
+	freeuio(auio);
 	return (error);
 }
 

@@ -32,7 +32,7 @@
    devices:
      tablet             USB tablet mouse
  */
-#include <sys/cdefs.h>
+
 #include <sys/param.h>
 #include <sys/uio.h>
 #include <sys/types.h>
@@ -1754,7 +1754,7 @@ retry:
 				ccs ^= 0x1;
 
 			xfer_block = usb_data_xfer_append(xfer, NULL, 0,
-			                                  (void *)addr, ccs);
+			    (void *)(uintptr_t)addr, ccs);
 			xfer_block->processed = 1;
 			break;
 
@@ -1775,7 +1775,7 @@ retry:
 			       sizeof(struct usb_device_request));
 
 			xfer_block = usb_data_xfer_append(xfer, NULL, 0,
-			                                  (void *)addr, ccs);
+			    (void *)(uintptr_t)addr, ccs);
 			xfer_block->processed = 1;
 			break;
 
@@ -1793,23 +1793,24 @@ retry:
 			xfer_block = usb_data_xfer_append(xfer,
 			     (void *)(trbflags & XHCI_TRB_3_IDT_BIT ?
 			         &trb->qwTrb0 : XHCI_GADDR(sc, trb->qwTrb0)),
-			     trb->dwTrb2 & 0x1FFFF, (void *)addr, ccs);
+			     trb->dwTrb2 & 0x1FFFF, (void *)(uintptr_t)addr,
+			     ccs);
 			break;
 
 		case XHCI_TRB_TYPE_STATUS_STAGE:
 			xfer_block = usb_data_xfer_append(xfer, NULL, 0,
-			                                  (void *)addr, ccs);
+			    (void *)(uintptr_t)addr, ccs);
 			break;
 
 		case XHCI_TRB_TYPE_NOOP:
 			xfer_block = usb_data_xfer_append(xfer, NULL, 0,
-			                                  (void *)addr, ccs);
+			    (void *)(uintptr_t)addr, ccs);
 			xfer_block->processed = 1;
 			break;
 
 		case XHCI_TRB_TYPE_EVENT_DATA:
 			xfer_block = usb_data_xfer_append(xfer, NULL, 0,
-			                                  (void *)addr, ccs);
+			    (void *)(uintptr_t)addr, ccs);
 			if ((epid > 1) && (trbflags & XHCI_TRB_3_IOC_BIT)) {
 				xfer_block->processed = 1;
 			}
@@ -3102,8 +3103,8 @@ pci_xhci_snapshot(struct vm_snapshot_meta *meta)
 
 		/* check if the restored device (when restoring) is sane */
 		if (restore_idx != i) {
-			fprintf(stderr, "%s: idx not matching: actual: %d, "
-				"expected: %d\r\n", __func__, restore_idx, i);
+			EPRINTLN("%s: idx not matching: actual: %d, "
+			    "expected: %d", __func__, restore_idx, i);
 			ret = EINVAL;
 			goto done;
 		}
@@ -3118,9 +3119,9 @@ pci_xhci_snapshot(struct vm_snapshot_meta *meta)
 		if (meta->op == VM_SNAPSHOT_RESTORE) {
 			dname[sizeof(dname) - 1] = '\0';
 			if (strcmp(dev->dev_ue->ue_emu, dname)) {
-				fprintf(stderr, "%s: device names mismatch: "
-					"actual: %s, expected: %s\r\n",
-					__func__, dname, dev->dev_ue->ue_emu);
+				EPRINTLN("%s: device names mismatch: "
+				    "actual: %s, expected: %s",
+				    __func__, dname, dev->dev_ue->ue_emu);
 
 				ret = EINVAL;
 				goto done;

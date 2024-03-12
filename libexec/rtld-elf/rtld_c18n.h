@@ -33,23 +33,19 @@
 /*
  * Global symbols
  */
-#define	C18N_FUNC_SIG_COUNT	72
-
 extern uintptr_t sealer_pltgot, sealer_tramp;
 extern const char *ld_compartment_utrace;
 extern const char *ld_compartment_enable;
 extern const char *ld_compartment_overhead;
 extern const char *ld_compartment_sig;
 
-void tramp_init(void);
-
 /*
  * Policies
  */
 #ifdef __ARM_MORELLO_PURECAP_BENCHMARK_ABI
-#define	C18N_RTLD_COMPARTMENT_ID	1
+#define	C18N_RTLD_COMPART_ID	1
 #else
-#define	C18N_RTLD_COMPARTMENT_ID	0
+#define	C18N_RTLD_COMPART_ID	0
 #endif
 #define	C18N_COMPARTMENT_ID_MAX	(UINT16_MAX >> 1)
 
@@ -71,7 +67,7 @@ struct policy {
 	size_t count;
 };
 
-void tramp_add_comparts(struct policy *);
+void c18n_add_comparts(struct policy *);
 compart_id_t compart_id_allocate(const char *);
 
 /*
@@ -95,7 +91,6 @@ struct Struct_Stack_Entry {
 };
 
 void allocate_stk_table(void);
-void *_rtld_get_rstk(unsigned);
 
 static inline unsigned
 compart_id_to_index(compart_id_t cid)
@@ -126,6 +121,19 @@ stk_table_set(struct stk_table *table)
 #else
 	asm ("msr	ctpidr_el0, %0" :: "C" (table));
 #endif
+}
+
+static inline void *
+#ifdef __ARM_MORELLO_PURECAP_BENCHMARK_ABI
+trusted_stk_get(void)
+#else
+untrusted_stk_get(void)
+#endif
+{
+	void *sp;
+
+	asm ("mrs	%0, rcsp_el0" : "=C" (sp));
+	return (sp);
 }
 
 static inline void
@@ -164,22 +172,29 @@ struct func_sig {
 	unsigned char reg_args : 4;
 	unsigned char valid : 1;
 };
+_Static_assert(sizeof(struct func_sig) == sizeof(func_sig_int),
+    "Unexpected func_sig size");
 
 struct tramp_data {
 	void *target;
 	const Obj_Entry *defobj;
 	const Elf_Sym *def;
-	void *entry;
 	struct func_sig sig;
 };
-_Static_assert(sizeof(struct func_sig) == sizeof(func_sig_int),
-    "Unexpected func_sig size");
 
-void *_rtld_tramp_hook(int, void *, const Obj_Entry *, const Elf_Sym *, void *,
+struct tramp_header {
+	void *target;
+	const Obj_Entry *defobj;
+	const Elf_Sym *def;
+	uint32_t entry[];
+};
+
+void *tramp_hook(void *, int, void *, const Obj_Entry *, const Elf_Sym *,
     void *);
-size_t tramp_compile(void **, const struct tramp_data *);
+size_t tramp_compile(struct tramp_header **, const struct tramp_data *);
 void *tramp_intern(const Obj_Entry *reqobj, const struct tramp_data *);
-struct func_sig tramp_fetch_sig(const Obj_Entry *, unsigned long);
+
+struct func_sig sigtab_get(const Obj_Entry *, unsigned long);
 
 static inline long
 func_sig_to_otype(struct func_sig sig)
@@ -198,5 +213,8 @@ func_sig_legal(struct func_sig sig)
  */
 void *_rtld_sandbox_code(void *, struct func_sig);
 void *_rtld_safebox_code(void *, struct func_sig);
+
+void c18n_init(void);
+void *c18n_return_address(void);
 
 #endif

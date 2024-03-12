@@ -30,7 +30,6 @@
  *	From BSDI: daemon.c,v 1.2 1996/08/15 01:11:09 jch Exp
  */
 
-#include <sys/cdefs.h>
 #include <sys/param.h>
 #include <sys/event.h>
 #include <sys/mman.h>
@@ -420,6 +419,7 @@ daemon_eventloop(struct daemon_state *state)
 	close(state->pipe_fd[1]);
 	state->pipe_fd[1] = -1;
 	setproctitle("%s[%d]", state->title, (int)state->pid);
+	setbuf(stdout, NULL);
 
 	while (state->mode != MODE_NOCHILD) {
 		ret = kevent(kq, NULL, 0, &event, 1, NULL);

@@ -99,7 +99,7 @@ enum prison_state {
 #define	JAIL_UPDATE	0x02	/* Update parameters of existing jail */
 #define	JAIL_ATTACH	0x04	/* Attach to jail upon creation */
 #define	JAIL_DYING	0x08	/* Allow getting a dying jail */
-#define	JAIL_SET_MASK	0x0f
+#define	JAIL_SET_MASK	0x0f	/* JAIL_DYING is deprecated/ignored here */
 #define	JAIL_GET_MASK	0x08
 
 #define	JAIL_SYS_DISABLE	0
@@ -253,7 +253,8 @@ struct prison_racct {
 #define	PR_ALLOW_RESERVED_PORTS		0x00008000
 #define	PR_ALLOW_KMEM_ACCESS		0x00010000	/* reserved, not used yet */
 #define	PR_ALLOW_NFSD			0x00020000
-#define	PR_ALLOW_ALL_STATIC		0x000387ff
+#define	PR_ALLOW_EXTATTR		0x00040000
+#define	PR_ALLOW_ALL_STATIC		0x000787ff
 
 /*
  * PR_ALLOW_DIFFERENCES determines which flags are able to be

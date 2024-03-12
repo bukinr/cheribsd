@@ -202,6 +202,7 @@ static void
 parse_args(int argc, char *argv[])
 {
 	int ch;
+	const char *arg;
 
 	while ((ch = getopt_long(argc, argv, "AaBb:C:cdDe:EFfhk:L:l:NnOo:pTt:v",
 		    lopts, NULL)) != -1) {
@@ -214,7 +215,10 @@ parse_args(int argc, char *argv[])
 			break;
 		case 'b':
 			opts.has_bootnum = true;
-			opts.bootnum = strtoul(optarg, NULL, 16);
+			arg = optarg;
+			if (strncasecmp(arg, "boot", 4) == 0)
+				arg += 4;
+			opts.bootnum = strtoul(arg, NULL, 16);
 			break;
 		case 'B':
 			opts.delete = true;
@@ -222,6 +226,8 @@ parse_args(int argc, char *argv[])
 		case 'C':
 			opts.copy = true;
 			opts.cp_src = strtoul(optarg, NULL, 16);
+			errx(1, "Copy not implemented");
+			break;
 		case 'c':
 			opts.create = true;
 			break;
@@ -555,7 +561,7 @@ static char *
 make_next_boot_var_name(void)
 {
 	struct entry *v;
-	uint16_t *vals, next_free = 0;
+	uint16_t *vals;
 	char *name;
 	int cnt = 0;
 	int i;
@@ -573,21 +579,14 @@ make_next_boot_var_name(void)
 		vals[i++] = v->idx;
 	}
 	qsort(vals, cnt, sizeof(uint16_t), compare);
-	/* if the hole is at the beginning, just return zero */
-	if (vals[0] > 0) {
-		next_free = 0;
-	} else {
-		/* now just run the list looking for the first hole */
-		for (i = 0; i < cnt - 1 && next_free == 0; i++)
-			if (vals[i] + 1 != vals[i + 1])
-				next_free = vals[i] + 1;
-		if (next_free == 0)
-			next_free = vals[cnt - 1] + 1;
-		/* In theory we could have used all 65k slots -- what to do? */
-	}
+	/* Find the first hole (could be at start or end) */
+	for (i = 0; i < cnt; ++i)
+		if (vals[i] != i)
+			break;
 	free(vals);
+	/* In theory we could have used all 65k slots -- what to do? */
 
-	asprintf(&name, "%s%04X", "Boot", next_free);
+	asprintf(&name, "%s%04X", "Boot", i);
 	if (name == NULL)
 		err(1, "asprintf");
 	return name;
@@ -1101,8 +1100,11 @@ main(int argc, char *argv[])
 	/*
 	 * find_dev can operate without any efi variables
 	 */
-	if (!efi_variables_supported() && !opts.find_dev)
-		errx(1, "efi variables not supported on this system. root? kldload efirt?");
+	if (!efi_variables_supported() && !opts.find_dev) {
+		if (errno == EACCES && geteuid() != 0)
+			errx(1, "must be run as root");
+		errx(1, "efi variables not supported on this system. kldload efirt?");
+	}
 
 	read_vars();
 

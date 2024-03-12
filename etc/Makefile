@@ -1,4 +1,3 @@
-#	from: @(#)Makefile	5.11 (Berkeley) 5/21/91
 
 .include <src.opts.mk>
 .include <src.tools.mk>
@@ -40,8 +39,9 @@ distribute:
 	# Avoid installing tests here; "make distribution" will do this and
 	# correctly place them in the right location.
 	${_+_}cd ${.CURDIR} ; ${MAKE} MK_TESTS=no install \
-	    DESTDIR=${DISTDIR}/${DISTRIBUTION}
-	${_+_}cd ${.CURDIR} ; ${MAKE} distribution DESTDIR=${DISTDIR}/${DISTRIBUTION}
+	    DISTBASE=/${DISTRIBUTION} DESTDIR=${DISTDIR}/${DISTRIBUTION}
+	${_+_}cd ${.CURDIR} ; ${MAKE} distribution \
+	    DISTBASE=/${DISTRIBUTION} DESTDIR=${DISTDIR}/${DISTRIBUTION}
 
 .include <bsd.endian.mk>
 

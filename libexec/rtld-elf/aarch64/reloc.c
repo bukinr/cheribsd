@@ -28,9 +28,7 @@
  * SUCH DAMAGE.
  */
 
-#include <sys/cdefs.h>
 #include <sys/param.h>
-#include <sys/types.h>
 #include <sys/mman.h>
 
 #include <stdlib.h>
@@ -438,8 +436,7 @@ reloc_jmpslots(Obj_Entry *obj, int flags, RtldLockState *lockstate)
 				.target = (void *)target,
 				.defobj = defobj,
 				.def = def,
-				.sig = tramp_fetch_sig(obj,
-				    ELF_R_SYM(rela->r_info))
+				.sig = sigtab_get(obj, ELF_R_SYM(rela->r_info))
 			});
 #endif
 			reloc_jmpslot(where, target, defobj, obj,
@@ -592,8 +589,7 @@ reloc_gnu_ifunc(Obj_Entry *obj, int flags,
 				.target = (void *)target,
 				.defobj = defobj,
 				.def = def,
-				.sig = tramp_fetch_sig(obj,
-				    ELF_R_TYPE(rela->r_info))
+				.sig = sigtab_get(obj, ELF_R_TYPE(rela->r_info))
 			});
 #endif
 			wlock_acquire(rtld_bind_lock, lockstate);
@@ -858,7 +854,7 @@ allocate_initial_tls(Obj_Entry *objs)
 	* use.
 	*/
 	tls_static_space = tls_last_offset + tls_last_size +
-	    RTLD_STATIC_TLS_EXTRA;
+	    ld_static_tls_extra;
 
 	_tcb_set(allocate_tls(objs, NULL, TLS_TCB_SIZE, TLS_TCB_ALIGN));
 }

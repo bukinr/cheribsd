@@ -256,9 +256,6 @@ DEFINE_VMMOPS_IFUNC(int, vcpu_snapshot, (void *vcpui,
 DEFINE_VMMOPS_IFUNC(int, restore_tsc, (void *vcpui, uint64_t now))
 #endif
 
-#define	fpu_start_emulating()	load_cr0(rcr0() | CR0_TS)
-#define	fpu_stop_emulating()	clts()
-
 SDT_PROVIDER_DEFINE(vmm);
 
 static MALLOC_DEFINE(M_VM, "vm", "vm");
@@ -1291,7 +1288,7 @@ restore_guest_fpustate(struct vcpu *vcpu)
 	fpuexit(curthread);
 
 	/* restore guest FPU state */
-	fpu_stop_emulating();
+	fpu_enable();
 	fpurestore(vcpu->guestfpu);
 
 	/* restore guest XCR0 if XSAVE is enabled in the host */
@@ -1299,10 +1296,10 @@ restore_guest_fpustate(struct vcpu *vcpu)
 		load_xcr(0, vcpu->guest_xcr0);
 
 	/*
-	 * The FPU is now "dirty" with the guest's state so turn on emulation
-	 * to trap any access to the FPU by the host.
+	 * The FPU is now "dirty" with the guest's state so disable
+	 * the FPU to trap any access by the host.
 	 */
-	fpu_start_emulating();
+	fpu_disable();
 }
 
 static void
@@ -1319,9 +1316,9 @@ save_guest_fpustate(struct vcpu *vcpu)
 	}
 
 	/* save guest FPU state */
-	fpu_stop_emulating();
+	fpu_enable();
 	fpusave(vcpu->guestfpu);
-	fpu_start_emulating();
+	fpu_disable();
 }
 
 static VMM_STAT(VCPU_IDLE_TICKS, "number of ticks vcpu was idle");
@@ -1749,6 +1746,40 @@ vm_handle_reqidle(struct vcpu *vcpu, bool *retu)
 	return (0);
 }
 
+static int
+vm_handle_db(struct vcpu *vcpu, struct vm_exit *vme, bool *retu)
+{
+	int error, fault;
+	uint64_t rsp;
+	uint64_t rflags;
+	struct vm_copyinfo copyinfo;
+
+	*retu = true;
+	if (!vme->u.dbg.pushf_intercept || vme->u.dbg.tf_shadow_val != 0) {
+		return (0);
+	}
+
+	vm_get_register(vcpu, VM_REG_GUEST_RSP, &rsp);
+	error = vm_copy_setup(vcpu, &vme->u.dbg.paging, rsp, sizeof(uint64_t),
+	    VM_PROT_RW, &copyinfo, 1, &fault);
+	if (error != 0 || fault != 0) {
+		*retu = false;
+		return (EINVAL);
+	}
+
+	/* Read pushed rflags value from top of stack. */
+	vm_copyin(&copyinfo, &rflags, sizeof(uint64_t));
+
+	/* Clear TF bit. */
+	rflags &= ~(PSL_T);
+
+	/* Write updated value back to memory. */
+	vm_copyout(&rflags, &copyinfo, sizeof(uint64_t));
+	vm_copy_teardown(&copyinfo, 1);
+
+	return (0);
+}
+
 int
 vm_suspend(struct vm *vm, enum vm_suspend_how how)
 {
@@ -1916,6 +1947,9 @@ restart:
 		case VM_EXITCODE_INOUT:
 		case VM_EXITCODE_INOUT_STR:
 			error = vm_handle_inout(vcpu, vme, &retu);
+			break;
+		case VM_EXITCODE_DB:
+			error = vm_handle_db(vcpu, vme, &retu);
 			break;
 		case VM_EXITCODE_MONITOR:
 		case VM_EXITCODE_MWAIT:

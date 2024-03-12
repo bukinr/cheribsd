@@ -231,7 +231,7 @@ SYSCTL_INT(ASLR_NODE_OID, OID_AUTO, honor_sbrk, CTLFLAG_RW,
     &__elfN(aslr_honor_sbrk), 0,
     ELF_ABI_NAME ": assume sbrk is used");
 
-static int __elfN(aslr_stack) = 1;
+static int __elfN(aslr_stack) = __ELF_WORD_SIZE == 64;
 SYSCTL_INT(ASLR_NODE_OID, OID_AUTO, stack, CTLFLAG_RWTUN,
     &__elfN(aslr_stack), 0,
     ELF_ABI_NAME
@@ -282,7 +282,6 @@ __elfN(freebsd_trans_osrel)(const Elf_Note *note, int32_t *osrel)
 	return (true);
 }
 
-static const char GNU_ABI_VENDOR[] = "GNU";
 static int GNU_KFREEBSD_ABI_DESC = 3;
 
 Elf_Brandnote __elfN(kfreebsd_brandnote) = {
@@ -1020,6 +1019,9 @@ __elfN(load_file)(struct proc *p, const char *file, u_long *addr,
 	if (error != 0)
 		goto fail;
 
+	if (p->p_sysent->sv_protect != NULL)
+		p->p_sysent->sv_protect(imgp, SVP_INTERP);
+
 	*addr = base_addr;
 	*end_addr = max_addr;
 	*entry = (unsigned long)hdr->e_entry + rbase;
@@ -1594,6 +1596,7 @@ __CONCAT(exec_, __elfN(imgact))(struct image_params *imgp)
 	imgp->interp_start = 0;
 	imgp->interp_end = 0;
 
+
 #ifdef HWT_HOOKS
 	/* HWT: record main binary. */
 	struct hwt_record_entry ent;
@@ -1604,6 +1607,9 @@ __CONCAT(exec_, __elfN(imgact))(struct image_params *imgp)
 		HWT_CALL_HOOK(td, HWT_EXEC, &ent);
 	}
 #endif
+
+	if (sv->sv_protect != NULL)
+		sv->sv_protect(imgp, SVP_IMAGE);
 
 	if (interp != NULL) {
 		VOP_UNLOCK(imgp->vp);

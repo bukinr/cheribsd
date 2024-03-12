@@ -63,14 +63,6 @@
  */
 
 /*
- * Relocate kernel vaddr to the boot identity mapping
- */
-.macro early_idmap_addr dreg, sym, delta
-	ldr	\dreg, =\sym
-	add	\dreg, \dreg, \delta
-.endmacro
-
-/*
  * Build kernel pointer for the given data symbol
  * assuming the kernel mmu mapping is enabled
  */
@@ -194,12 +186,11 @@
 #endif
 .endmacro
 
-ENTRY(_start)
 #ifdef __CHERI_PURE_CAPABILITY__
 	.arch_extension noc64
 	.arch_extension a64c
 #endif
-
+ENTRY(_start)
 	/*
 	 * Drop to EL1
 	 * Note: this is done while still in A64 mode.
@@ -226,11 +217,10 @@ ENTRY(_start)
 	msr	contextidr_el1, xzr
 
 	/* Get the virt -> phys offset */
-	bl	get_virt_delta
+	bl	get_load_phys_addr
 
 	/*
 	 * At this point:
-	 * x29 = PA - VA
 	 * x28 = Our physical load address
 	 */
 
@@ -248,12 +238,15 @@ ENTRY(_start)
 	bl	start_mmu
 
 	/* Load the new ttbr0 pagetable */
-	early_idmap_addr x27, pagetable_l0_ttbr0, x29
+	adrp	PTR(27), pagetable_l0_ttbr0
+	add	x27, x27, :lo12:pagetable_l0_ttbr0
 
 	/* Jump to the virtual address space */
 	enter_kern_vaddr 15, 7, 8, virtdone
 
 virtdone:
+	BTI_J
+
 	/* Set up the stack */
 	mov	x7, #(PAGE_SIZE * KSTACK_PAGES)
 	buildptr 25, initstack, x7
@@ -264,8 +257,7 @@ virtdone:
 	 * no place to store the PCB pointer here.
 	 * XXX-AM: It could be another bootparam if needed
 	 */
-	mov	PTRN(sp), PTR(7)
-	sub	PTRN(sp), PTRN(sp), #PCB_SIZE
+	sub	PTRN(sp), PTR(7), #PCB_SIZE
 
 	/* Zero the BSS */
 	buildptr_range 15, 14, _bss_start, _end
@@ -314,11 +306,7 @@ virtdone:
 	sub	PTRN(sp), PTRN(sp), #BOOTPARAMS_SIZE
 	mov	PTR(0), PTRN(sp)
 
-	/* Negate the delta so it is VA -> PA */
-	neg	x29, x29
-
 	str	PTR(19), [PTR(0), #BP_MODULEP]
-	str	x29, [PTR(0), #BP_KERN_DELTA]
 	str	PTR(25), [PTR(0), #BP_KERN_STACK]
 	str	x27, [PTR(0), #BP_KERN_TTBR0]
 	str	x23, [PTR(0), #BP_BOOT_EL]
@@ -337,7 +325,6 @@ virtdone:
 
 	/* trace back starts here */
 	mov	fp, #0
-
 	/* Branch to C code */
 	clear_capregs
 	bl	initarm
@@ -374,11 +361,11 @@ END(_start)
  * Called by a core when it is being brought online.
  * The data in x0 is passed straight to init_secondary.
  */
-ENTRY(mpentry)
 #ifdef __CHERI_PURE_CAPABILITY__
 	.arch_extension noc64
 	.arch_extension a64c
 #endif
+ENTRY(mpentry)
 	/* Disable interrupts */
 	msr	daifset, #DAIF_INTR
 
@@ -391,24 +378,26 @@ ENTRY(mpentry)
 	/* Set the context id */
 	msr	contextidr_el1, xzr
 
-	/* Get the virt -> phys offset */
-	bl	get_virt_delta
-
 	/* Load the kernel page table */
-	early_idmap_addr x24, pagetable_l0_ttbr1, x29
+	adrp	PTR(24), pagetable_l0_ttbr1
+	add	x24, x24, :lo12:pagetable_l0_ttbr1
 	/* Load the identity page table */
-	early_idmap_addr x27, pagetable_l0_ttbr0_bootstrap, x29
+	adrp	PTR(27), pagetable_l0_ttbr0_bootstrap
+	add	x27, x27, :lo12:pagetable_l0_ttbr0_bootstrap
 
 	/* Enable the mmu */
 	bl	start_mmu
 
 	/* Load the new ttbr0 pagetable */
-	early_idmap_addr x27, pagetable_l0_ttbr0, x29
+	adrp	PTR(27), pagetable_l0_ttbr0
+	add	x27, x27, :lo12:pagetable_l0_ttbr0
 
 	/* Jump to the virtual address space */
 	enter_kern_vaddr 15, 7, 8, mp_virtdone
 
 mp_virtdone:
+	BTI_J
+
 	/* Start using the AP boot stack */
 	LDR_LABEL(PTR(4), PTR(4), bootstack)
 	mov	PTRN(sp), PTR(4)
@@ -431,6 +420,14 @@ mp_virtdone:
 
 	clear_capregs
 
+	/*
+	 * Initialize the per-CPU pointer before calling into C code, for the
+	 * benefit of kernel sanitizers.
+	 */
+	adrp	PTR(18), bootpcpu
+	ldr	PTR(18), [PTR(18), :lo12:bootpcpu]
+	msr	PTRN(tpidr_el1), PTR(18)
+
 	b	init_secondary
 END(mpentry)
 #endif
@@ -439,11 +436,11 @@ END(mpentry)
  * If we are started in EL2, configure the required hypervisor
  * registers and drop to EL1.
  */
-LENTRY(drop_to_el1)
 #ifdef __CHERI_PURE_CAPABILITY__
 	.arch_extension noc64
 	.arch_extension a64c
 #endif
+LENTRY(drop_to_el1)
 	mrs	x23, CurrentEL
 	lsr	x23, x23, #2
 	cmp	x23, #0x2
@@ -561,37 +558,27 @@ LENTRY(drop_to_el1)
 	isb
 
 	eret
-#ifdef __CHERI_PURE_CAPABILITY__
-	.arch_extension c64
-#endif
 
 	.align 3
 .Lsctlr_res1:
 	.quad SCTLR_RES1
 LEND(drop_to_el1)
+#ifdef __CHERI_PURE_CAPABILITY__
+	.arch_extension c64
+#endif
 
 /*
- * Get the delta between the physical address we were loaded to and the
- * virtual address we expect to run from. This is used when building the
- * initial page table.
+ * Get the physical address the kernel was loaded at.
  */
-LENTRY(get_virt_delta)
-	/* Load the physical address of virt_map */
-	adrp	PTR(29), virt_map
-	add	PTR(29), PTR(29), :lo12:virt_map
-	/* Load the virtual address of virt_map stored in virt_map */
-	ldr	x28, [PTR(29)]
-	/* Find PA - VA as PA' = VA' - VA + PA = VA' + (PA - VA) = VA' + x29 */
-	sub	x29, x29, x28
-	/* Find the load address for the kernel */
-	mov	x28, #(KERNBASE)
-	add	x28, x28, x29
+LENTRY(get_load_phys_addr)
+	/* Load the offset of get_load_phys_addr from KERNBASE */
+	ldr	x28, =(get_load_phys_addr - KERNBASE)
+	/* Load the physical address of get_load_phys_addr */
+	adr	PTR(29), get_load_phys_addr
+	/* Find the physical address of KERNBASE, i.e. our load address */
+	sub	x28, x29, x28
 	ret
-
-	.align 3
-virt_map:
-	.quad	virt_map
-LEND(get_virt_delta)
+LEND(get_load_phys_addr)
 
 /*
  * This builds the page tables containing the identity map, and the kernel
@@ -601,7 +588,6 @@ LEND(get_virt_delta)
  *  We were loaded to an address that is on a 2MiB boundary
  *  All the memory must not cross a 1GiB boundaty
  *  x28 contains the physical address we were loaded from
- *  x29 contains the load address delta (PA - VA)
  *
  * Returns:
  *  x27 TTBR0 table phys addr
@@ -622,15 +608,10 @@ LENTRY(create_pagetables)
 	mov	PTR(5), PTR(30)
 
 	/* Clean the page table */
-	/*
-	 * Get pointer to the pagetable in the .init_pagetable section
-	 * We need to manually relocate the address to access it using
-	 * the boot identity map
-	 */
-	ldr	x6, =pagetable
-	add	x6, x6, x29
-	ldr	x27, =pagetable_end
-	add	x27, x27, x29
+	adrp	PTR(6), pagetable
+	add	x6, x6, :lo12:pagetable
+	adrp	PTR(27), pagetable_end
+	add	x27, x27, :lo12:pagetable_end
 #ifdef __CHERI_PURE_CAPABILITY__
 	sub	x7, x27, x6
 	cvtd	c6, x6
@@ -939,6 +920,9 @@ LENTRY(build_l2_block_pagetable)
 #endif
 	orr	x12, x12, #(ATTR_DEFAULT)
 	orr	x12, x12, #(ATTR_S1_UXN)
+#ifdef __ARM_FEATURE_BTI_DEFAULT
+	orr	x12, x12, #(ATTR_S1_GP)
+#endif
 
 	/* Only use the output address bits */
 	lsr	x9, x9, #L2_SHIFT
@@ -1011,6 +995,9 @@ LENTRY(build_l3_page_pagetable)
 #endif
 	orr	x12, x12, #(ATTR_DEFAULT)
 	orr	x12, x12, #(ATTR_S1_UXN)
+#ifdef __ARM_FEATURE_BTI_DEFAULT
+	orr	x12, x12, #(ATTR_S1_GP)
+#endif
 
 	/* Only use the output address bits */
 	lsr	x9, x9, #L3_SHIFT
@@ -1143,7 +1130,7 @@ sctlr_set:
 	.quad (SCTLR_LSMAOE | SCTLR_nTLSMD | SCTLR_UCI | SCTLR_SPAN | \
 	    SCTLR_nTWE | SCTLR_nTWI | SCTLR_UCT | SCTLR_DZE | \
 	    SCTLR_I | SCTLR_SED | SCTLR_SA0 | SCTLR_SA | SCTLR_C | \
-	    SCTLR_M | SCTLR_CP15BEN)
+	    SCTLR_M | SCTLR_CP15BEN | SCTLR_BT1 | SCTLR_BT0)
 sctlr_clear:
 	/* Bits to clear */
 	.quad (SCTLR_EE | SCTLR_E0E | SCTLR_IESB | SCTLR_WXN | SCTLR_UMA | \
@@ -1155,7 +1142,6 @@ ENTRY(abort)
 END(abort)
 
 .bss
-
 	.align	PAGE_SHIFT
 	.type	initstack,#object
 initstack:
@@ -1233,7 +1219,6 @@ SIGCODE(freebsd64_sigcode)
 	.align	3
 END(freebsd64_sigcode)
 freebsd64_esigcode:
-
 	.data
 	.align	3
 	.global	freebsd64_szsigcode
@@ -1256,7 +1241,6 @@ SIGCODE(aarch32_sigcode)
 	.align	3
 END(aarch32_sigcode)
 aarch32_esigcode:
-
 	.data
 	.global sz_aarch32_sigcode
 	.type	sz_aarch32_sigcode,#object

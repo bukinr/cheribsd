@@ -81,6 +81,7 @@ extern size_t tls_last_size;
 extern size_t tls_static_space;
 extern Elf_Addr tls_dtv_generation;
 extern int tls_max_index;
+extern size_t ld_static_tls_extra;
 
 extern int npagesizes;
 extern size_t *pagesizes;
@@ -92,19 +93,6 @@ extern char **environ;
 
 struct stat;
 struct Struct_Obj_Entry;
-struct CheriExports;
-struct CheriPlt;
-/* Instead of using void** to get warnings on casts */
-struct CheriCapTableEntry {
-	void *value;
-};
-
-struct CheriCapTableMappingEntry {
-  uint64_t func_start;       // virtual address relative to base address
-  uint64_t func_end;         // virtual address relative to base address
-  uint32_t cap_table_offset; // offset in bytes into captable
-  uint32_t sub_table_size;   // size in bytes of this sub-table
-};
 
 /* Lists of shared objects */
 typedef struct Struct_Objlist_Entry {
@@ -207,9 +195,7 @@ typedef struct Struct_Obj_Entry {
      */
     Elf_Addr text_rodata_start_offset;
     Elf_Addr text_rodata_end_offset;
-    const char* text_rodata_cap;	/* Capability for the executable mapping */
-    struct CheriExports *cheri_exports;	/* Unique thunks for function pointers */
-    struct CheriPlt *cheri_plt_stubs;	/* PLT stubs for external calls */
+    const char *text_rodata_cap;	/* Capability for the executable mapping */
 #endif
     caddr_t relocbase;		/* Relocation constant = mapbase - vaddrbase */
     const Elf_Dyn *dynamic;	/* Dynamic section */
@@ -314,6 +300,7 @@ typedef struct Struct_Obj_Entry {
     bool ver_checked : 1;	/* True if processed by rtld_verify_object_versions */
     bool textrel : 1;		/* True if there are relocations to text seg */
     bool symbolic : 1;		/* True if generated with "-Bsymbolic" */
+    bool deepbind : 1;		/* True if loaded with RTLD_DEEPBIND" */
     bool bind_now : 1;		/* True if all relocations should be made first */
     bool traced : 1;		/* Already printed in ldd trace output */
     bool jmpslots_done : 1;	/* Already have relocated the jump slots */
@@ -449,8 +436,7 @@ Obj_Entry *map_object(int, const char *, const struct stat *, const char *);
 void *xcalloc(size_t, size_t);
 void *xmalloc(size_t);
 char *xstrdup(const char *);
-void *malloc_aligned(size_t size, size_t align, size_t offset);
-void free_aligned(void *ptr);
+void *xmalloc_aligned(size_t size, size_t align, size_t offset);
 extern Elf_Addr _GLOBAL_OFFSET_TABLE_[];
 extern Elf_Sym sym_zero;	/* For resolving undefined weak refs. */
 extern bool ld_bind_not;
@@ -553,7 +539,7 @@ void ifunc_init(Elf_Auxinfo[__min_size(AT_COUNT)]);
 void init_pltgot(Obj_Entry *);
 void allocate_initial_tls(Obj_Entry *);
 
-#if __has_feature(capabilities)
+#ifdef RTLD_HAS_CAPRELOCS
 void process___cap_relocs(Obj_Entry*);
 #endif
 

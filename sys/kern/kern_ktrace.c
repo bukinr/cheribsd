@@ -34,8 +34,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	@(#)kern_ktrace.c	8.2 (Berkeley) 9/23/93
  */
 
 #include <sys/cdefs.h>
@@ -788,7 +786,7 @@ ktrgenio(int fd, enum uio_rw rw, struct uio *uio, int error)
 	char *buf;
 
 	if (error) {
-		free(uio, M_IOV);
+		freeuio(uio);
 		return;
 	}
 	uio->uio_offset = 0;
@@ -796,7 +794,7 @@ ktrgenio(int fd, enum uio_rw rw, struct uio *uio, int error)
 	datalen = MIN(uio->uio_resid, ktr_geniosize);
 	buf = malloc(datalen, M_KTRACE, M_WAITOK);
 	error = uiomove(buf, datalen, uio);
-	free(uio, M_IOV);
+	freeuio(uio);
 	if (error) {
 		free(buf, M_KTRACE);
 		return;

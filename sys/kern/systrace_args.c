@@ -418,20 +418,6 @@ systrace_args(int sysnum, void *params, uint64_t *uarg, int *n_args)
 		*n_args = 0;
 		break;
 	}
-	/* sbrk */
-	case 69: {
-		struct sbrk_args *p = params;
-		iarg[a++] = p->incr; /* int */
-		*n_args = 1;
-		break;
-	}
-	/* sstk */
-	case 70: {
-		struct sstk_args *p = params;
-		iarg[a++] = p->incr; /* int */
-		*n_args = 1;
-		break;
-	}
 	/* munmap */
 	case 73: {
 		struct munmap_args *p = params;
@@ -3466,6 +3452,41 @@ systrace_args(int sysnum, void *params, uint64_t *uarg, int *n_args)
 		*n_args = 1;
 		break;
 	}
+	/* membarrier */
+	case 584: {
+		struct membarrier_args *p = params;
+		iarg[a++] = p->cmd; /* int */
+		uarg[a++] = p->flags; /* unsigned */
+		iarg[a++] = p->cpu_id; /* int */
+		*n_args = 3;
+		break;
+	}
+	/* timerfd_create */
+	case 585: {
+		struct timerfd_create_args *p = params;
+		iarg[a++] = p->clockid; /* int */
+		iarg[a++] = p->flags; /* int */
+		*n_args = 2;
+		break;
+	}
+	/* timerfd_gettime */
+	case 586: {
+		struct timerfd_gettime_args *p = params;
+		iarg[a++] = p->fd; /* int */
+		uarg[a++] = (intptr_t)p->curr_value; /* struct itimerspec * __capability */
+		*n_args = 2;
+		break;
+	}
+	/* timerfd_settime */
+	case 587: {
+		struct timerfd_settime_args *p = params;
+		iarg[a++] = p->fd; /* int */
+		iarg[a++] = p->flags; /* int */
+		uarg[a++] = (intptr_t)p->new_value; /* const struct itimerspec * __capability */
+		uarg[a++] = (intptr_t)p->old_value; /* struct itimerspec * __capability */
+		*n_args = 4;
+		break;
+	}
 	default:
 		*n_args = 0;
 		break;
@@ -4103,26 +4124,6 @@ systrace_entry_setargdesc(int sysnum, int ndx, char *desc, size_t descsz)
 		break;
 	/* vfork */
 	case 66:
-		break;
-	/* sbrk */
-	case 69:
-		switch (ndx) {
-		case 0:
-			p = "int";
-			break;
-		default:
-			break;
-		};
-		break;
-	/* sstk */
-	case 70:
-		switch (ndx) {
-		case 0:
-			p = "int";
-			break;
-		default:
-			break;
-		};
 		break;
 	/* munmap */
 	case 73:
@@ -9267,6 +9268,67 @@ systrace_entry_setargdesc(int sysnum, int ndx, char *desc, size_t descsz)
 			break;
 		};
 		break;
+	/* membarrier */
+	case 584:
+		switch (ndx) {
+		case 0:
+			p = "int";
+			break;
+		case 1:
+			p = "unsigned";
+			break;
+		case 2:
+			p = "int";
+			break;
+		default:
+			break;
+		};
+		break;
+	/* timerfd_create */
+	case 585:
+		switch (ndx) {
+		case 0:
+			p = "int";
+			break;
+		case 1:
+			p = "int";
+			break;
+		default:
+			break;
+		};
+		break;
+	/* timerfd_gettime */
+	case 586:
+		switch (ndx) {
+		case 0:
+			p = "int";
+			break;
+		case 1:
+			p = "userland struct itimerspec * __capability";
+			break;
+		default:
+			break;
+		};
+		break;
+	/* timerfd_settime */
+	case 587:
+		switch (ndx) {
+		case 0:
+			p = "int";
+			break;
+		case 1:
+			p = "int";
+			break;
+		case 2:
+			p = "userland const struct itimerspec * __capability";
+			break;
+		case 3:
+			p = "userland struct itimerspec * __capability";
+			break;
+		default:
+			break;
+		};
+		break;
 	default:
 		break;
 	};
@@ -9513,16 +9575,6 @@ systrace_return_setargdesc(int sysnum, int ndx, char *desc, size_t descsz)
 		break;
 	/* vfork */
 	case 66:
-	/* sbrk */
-	case 69:
-		if (ndx == 0 || ndx == 1)
-			p = "int";
-		break;
-	/* sstk */
-	case 70:
-		if (ndx == 0 || ndx == 1)
-			p = "int";
-		break;
 	/* munmap */
 	case 73:
 		if (ndx == 0 || ndx == 1)
@@ -11247,6 +11299,26 @@ systrace_return_setargdesc(int sysnum, int ndx, char *desc, size_t descsz)
 		break;
 	/* kqueuex */
 	case 583:
+		if (ndx == 0 || ndx == 1)
+			p = "int";
+		break;
+	/* membarrier */
+	case 584:
+		if (ndx == 0 || ndx == 1)
+			p = "int";
+		break;
+	/* timerfd_create */
+	case 585:
+		if (ndx == 0 || ndx == 1)
+			p = "int";
+		break;
+	/* timerfd_gettime */
+	case 586:
+		if (ndx == 0 || ndx == 1)
+			p = "int";
+		break;
+	/* timerfd_settime */
+	case 587:
 		if (ndx == 0 || ndx == 1)
 			p = "int";
 		break;

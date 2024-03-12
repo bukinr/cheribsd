@@ -77,8 +77,6 @@ MLINKS?=	rtld.1 ld-elf.so.1.1 \
 		rtld.1 ld.so.1
 
 CFLAGS+=	-fpic -DPIC $(DEBUG)
-# Since we pass -shared, we shouldn't also pass -pie
-MK_PIE:=	no
 
 LDFLAGS+=	-shared -Wl,-Bsymbolic -Wl,-z,defs -nostdlib -e ${RTLD_ENTRY}
 # Pull in the dependencies that we use from libc
@@ -122,9 +120,6 @@ SRCS+=		rtld_c18n.c rtld_c18n_machdep.c rtld_c18n_asm.S
 .if ${MACHINE_ABI:Mpurecap}
 .PATH: ${SRCTOP}/lib/libmalloc_simple
 SRCS+=		heap.c malloc.c
-
-CFLAGS+=	-I${SRCTOP}/lib/libc/${RTLD_ARCH}
-CXXFLAGS+=	-Wall -Wextra
 
 SIMPLE_PRINTF_PREFIX=rtld
 .include "${SRCTOP}/lib/libsimple_printf/Makefile.inc"

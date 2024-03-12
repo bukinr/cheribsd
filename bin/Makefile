@@ -1,4 +1,3 @@
-#	From: @(#)Makefile	8.1 (Berkeley) 5/31/93
 
 .include <src.opts.mk>
 
@@ -45,8 +44,6 @@ SUBDIR= cat \
 # Small cheri programs
 .if ${MACHINE_ABI:Mpurecap} || ${MK_LIB64C} == "yes"
 SUBDIR+= \
-	cheri_minimal_dynamic_exe \
-	cheri_minimal_pie_exe \
 	cheribsdtest \
 	helloworld \
 	helloworld_cxx \

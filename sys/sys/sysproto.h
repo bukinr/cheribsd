@@ -254,12 +254,6 @@ struct msync_args {
 struct vfork_args {
 	syscallarg_t dummy;
 };
-struct sbrk_args {
-	char incr_l_[PADL_(int)]; int incr; char incr_r_[PADR_(int)];
-};
-struct sstk_args {
-	char incr_l_[PADL_(int)]; int incr; char incr_r_[PADR_(int)];
-};
 struct munmap_args {
 	char addr_l_[PADL_(void * __capability)]; void * __capability addr; char addr_r_[PADR_(void * __capability)];
 	char len_l_[PADL_(size_t)]; size_t len; char len_r_[PADR_(size_t)];
@@ -1880,6 +1874,25 @@ struct swapoff_args {
 struct kqueuex_args {
 	char flags_l_[PADL_(u_int)]; u_int flags; char flags_r_[PADR_(u_int)];
 };
+struct membarrier_args {
+	char cmd_l_[PADL_(int)]; int cmd; char cmd_r_[PADR_(int)];
+	char flags_l_[PADL_(unsigned)]; unsigned flags; char flags_r_[PADR_(unsigned)];
+	char cpu_id_l_[PADL_(int)]; int cpu_id; char cpu_id_r_[PADR_(int)];
+};
+struct timerfd_create_args {
+	char clockid_l_[PADL_(int)]; int clockid; char clockid_r_[PADR_(int)];
+	char flags_l_[PADL_(int)]; int flags; char flags_r_[PADR_(int)];
+};
+struct timerfd_gettime_args {
+	char fd_l_[PADL_(int)]; int fd; char fd_r_[PADR_(int)];
+	char curr_value_l_[PADL_(struct itimerspec * __capability)]; struct itimerspec * __capability curr_value; char curr_value_r_[PADR_(struct itimerspec * __capability)];
+};
+struct timerfd_settime_args {
+	char fd_l_[PADL_(int)]; int fd; char fd_r_[PADR_(int)];
+	char flags_l_[PADL_(int)]; int flags; char flags_r_[PADR_(int)];
+	char new_value_l_[PADL_(const struct itimerspec * __capability)]; const struct itimerspec * __capability new_value; char new_value_r_[PADR_(const struct itimerspec * __capability)];
+	char old_value_l_[PADL_(struct itimerspec * __capability)]; struct itimerspec * __capability old_value; char old_value_r_[PADR_(struct itimerspec * __capability)];
+};
 int	sys_exit(struct thread *, struct exit_args *);
 int	sys_fork(struct thread *, struct fork_args *);
 int	sys_read(struct thread *, struct read_args *);
@@ -1932,8 +1945,6 @@ int	sys_umask(struct thread *, struct umask_args *);
 int	sys_chroot(struct thread *, struct chroot_args *);
 int	sys_msync(struct thread *, struct msync_args *);
 int	sys_vfork(struct thread *, struct vfork_args *);
-int	sys_sbrk(struct thread *, struct sbrk_args *);
-int	sys_sstk(struct thread *, struct sstk_args *);
 int	sys_munmap(struct thread *, struct munmap_args *);
 int	sys_mprotect(struct thread *, struct mprotect_args *);
 int	sys_madvise(struct thread *, struct madvise_args *);
@@ -2281,6 +2292,10 @@ int	sys_fspacectl(struct thread *, struct fspacectl_args *);
 int	sys_sched_getcpu(struct thread *, struct sched_getcpu_args *);
 int	sys_swapoff(struct thread *, struct swapoff_args *);
 int	sys_kqueuex(struct thread *, struct kqueuex_args *);
+int	sys_membarrier(struct thread *, struct membarrier_args *);
+int	sys_timerfd_create(struct thread *, struct timerfd_create_args *);
+int	sys_timerfd_gettime(struct thread *, struct timerfd_gettime_args *);
+int	sys_timerfd_settime(struct thread *, struct timerfd_settime_args *);
 
 #ifdef COMPAT_43
 
@@ -2772,6 +2787,12 @@ int	freebsd13_swapoff(struct thread *, struct freebsd13_swapoff_args *);
 
 #endif /* COMPAT_FREEBSD13 */
 
+
+#ifdef COMPAT_FREEBSD14
+
+
+#endif /* COMPAT_FREEBSD14 */
+
 #define	SYS_AUE_exit	AUE_EXIT
 #define	SYS_AUE_fork	AUE_FORK
 #define	SYS_AUE_read	AUE_READ
@@ -2837,8 +2858,6 @@ int	freebsd13_swapoff(struct thread *, struct freebsd13_swapoff_args *);
 #define	SYS_AUE_ogetpagesize	AUE_NULL
 #define	SYS_AUE_msync	AUE_MSYNC
 #define	SYS_AUE_vfork	AUE_VFORK
-#define	SYS_AUE_sbrk	AUE_SBRK
-#define	SYS_AUE_sstk	AUE_SSTK
 #define	SYS_AUE_ommap	AUE_MMAP
 #define	SYS_AUE_freebsd11_vadvise	AUE_O_VADVISE
 #define	SYS_AUE_munmap	AUE_MUNMAP
@@ -3256,6 +3275,10 @@ int	freebsd13_swapoff(struct thread *, struct freebsd13_swapoff_args *);
 #define	SYS_AUE_sched_getcpu	AUE_NULL
 #define	SYS_AUE_swapoff	AUE_SWAPOFF
 #define	SYS_AUE_kqueuex	AUE_KQUEUE
+#define	SYS_AUE_membarrier	AUE_NULL
+#define	SYS_AUE_timerfd_create	AUE_TIMERFD
+#define	SYS_AUE_timerfd_gettime	AUE_TIMERFD
+#define	SYS_AUE_timerfd_settime	AUE_TIMERFD
 
 #undef PAD_
 #undef PADL_

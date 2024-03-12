@@ -429,7 +429,7 @@ dmar_attach(device_t dev)
 	dmar_quirks_post_ident(unit);
 
 	timeout = dmar_get_timeout();
-	TUNABLE_UINT64_FETCH("hw.dmar.timeout", &timeout);
+	TUNABLE_UINT64_FETCH("hw.iommu.dmar.timeout", &timeout);
 	dmar_update_timeout(timeout);
 
 	for (i = 0; i < DMAR_INTR_TOTAL; i++)
@@ -969,7 +969,7 @@ dmar_path_dev(int segment, int path_len, int busno,
 		dev = pci_find_dbsf(segment, busno, path->Device,
 		    path->Function);
 		if (i != path_len - 1) {
-			busno = pci_cfgregread(busno, path->Device,
+			busno = pci_cfgregread(segment, busno, path->Device,
 			    path->Function, PCIR_SECBUS_1, 1);
 			path++;
 		}

@@ -463,6 +463,7 @@
 #define	 EXCP_UNKNOWN		0x00	/* Unkwn exception */
 #define	 EXCP_TRAP_WFI_WFE	0x01	/* Trapped WFI or WFE */
 #define	 EXCP_FP_SIMD		0x07	/* VFP/SIMD trap */
+#define	 EXCP_BTI		0x0d	/* Branch Target Exception */
 #define	 EXCP_ILL_STATE		0x0e	/* Illegal execution state */
 #define	 EXCP_SVC32		0x11	/* SVC trap for AArch32 */
 #define	 EXCP_SVC64		0x15	/* SVC trap for AArch64 */
@@ -2045,6 +2046,15 @@
 #define	PMXEVTYPER_EL0_CRn		9
 #define	PMXEVTYPER_EL0_CRm		13
 #define	PMXEVTYPER_EL0_op2		1
+
+/* RNDRRS */
+#define	RNDRRS				MRS_REG(RNDRRS)
+#define	RNDRRS_REG			MRS_REG_ALT_NAME(RNDRRS)
+#define	RNDRRS_op0			3
+#define	RNDRRS_op1			3
+#define	RNDRRS_CRn			2
+#define	RNDRRS_CRm			4
+#define	RNDRRS_op2			1
 
 /* SCTLR_EL1 - System Control Register */
 #define	SCTLR_RES1	0x30d00800	/* Reserved ARMv8.0, write 1 */

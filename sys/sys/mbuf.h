@@ -28,8 +28,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	@(#)mbuf.h	8.5 (Berkeley) 2/19/95
  */
 
 #ifndef _SYS_MBUF_H_
@@ -353,7 +351,7 @@ struct mbuf {
 		STAILQ_ENTRY(mbuf)	m_stailq;
 	};
 	union {	/* next chain in queue/record */
-		struct mbuf		*m_nextpkt;
+		struct mbuf		*m_nextpkt __subobject_use_container_bounds;
 		SLIST_ENTRY(mbuf)	m_slistpkt;
 		STAILQ_ENTRY(mbuf)	m_stailqpkt;
 	};

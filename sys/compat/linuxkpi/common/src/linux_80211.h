@@ -45,27 +45,36 @@
 /* #define	LINUXKPI_DEBUG_80211 */
 
 #ifndef	D80211_TODO
-#define	D80211_TODO		0x1
+#define	D80211_TODO		0x00000001
 #endif
 #ifndef D80211_IMPROVE
-#define	D80211_IMPROVE		0x2
+#define	D80211_IMPROVE		0x00000002
 #endif
-#define	D80211_IMPROVE_TXQ	0x4
-#define	D80211_TRACE		0x10
-#define	D80211_TRACEOK		0x20
-#define	D80211_TRACE_TX		0x100
-#define	D80211_TRACE_TX_DUMP	0x200
-#define	D80211_TRACE_RX		0x1000
-#define	D80211_TRACE_RX_DUMP	0x2000
-#define	D80211_TRACE_RX_BEACONS	0x4000
+#define	D80211_IMPROVE_TXQ	0x00000004
+#define	D80211_TRACE		0x00000010
+#define	D80211_TRACEOK		0x00000020
+#define	D80211_TRACE_TX		0x00000100
+#define	D80211_TRACE_TX_DUMP	0x00000200
+#define	D80211_TRACE_RX		0x00001000
+#define	D80211_TRACE_RX_DUMP	0x00002000
+#define	D80211_TRACE_RX_BEACONS	0x00004000
 #define	D80211_TRACEX		(D80211_TRACE_TX|D80211_TRACE_RX)
 #define	D80211_TRACEX_DUMP	(D80211_TRACE_TX_DUMP|D80211_TRACE_RX_DUMP)
-#define	D80211_TRACE_STA	0x10000
-#define	D80211_TRACE_MO		0x100000
+#define	D80211_TRACE_STA	0x00010000
+#define	D80211_TRACE_MO		0x00100000
+#define	D80211_TRACE_MODE	0x0f000000
+#define	D80211_TRACE_MODE_HT	0x01000000
+#define	D80211_TRACE_MODE_VHT	0x02000000
+#define	D80211_TRACE_MODE_HE	0x04000000
+#define	D80211_TRACE_MODE_EHT	0x08000000
 
 #define	IMPROVE_TXQ(...)						\
     if (linuxkpi_debug_80211 & D80211_IMPROVE_TXQ)			\
 	printf("%s:%d: XXX LKPI80211 IMPROVE_TXQ\n", __func__, __LINE__)
+
+#define	IMPROVE_HT(...)							\
+    if (linuxkpi_debug_80211 & D80211_TRACE_MODE_HT)			\
+	printf("%s:%d: XXX LKPI80211 IMPROVE_HT\n", __func__, __LINE__)
 
 struct lkpi_radiotap_tx_hdr {
 	struct ieee80211_radiotap_header wt_ihdr __subobject_use_container_bounds;
@@ -190,6 +199,29 @@ struct lkpi_hw {	/* name it mac80211_sc? */
 	void			(*ic_node_cleanup)(struct ieee80211_node *);
 	void			(*ic_node_free)(struct ieee80211_node *);
 
+	/* HT and later functions. */
+	int			(*ic_recv_action)(struct ieee80211_node *,
+				    const struct ieee80211_frame *,
+				    const uint8_t *, const uint8_t *);
+	int			(*ic_send_action)(struct ieee80211_node *,
+				    int, int, void *);
+	int			(*ic_ampdu_enable)(struct ieee80211_node *,
+				    struct ieee80211_tx_ampdu *);
+	int			(*ic_addba_request)(struct ieee80211_node *,
+				    struct ieee80211_tx_ampdu *, int, int, int);
+	int			(*ic_addba_response)(struct ieee80211_node *,
+				    struct ieee80211_tx_ampdu *, int, int, int);
+	void			(*ic_addba_stop)(struct ieee80211_node *,
+				    struct ieee80211_tx_ampdu *);
+	void			(*ic_addba_response_timeout)(struct ieee80211_node *,
+				    struct ieee80211_tx_ampdu *);
+	void			(*ic_bar_response)(struct ieee80211_node *,
+				    struct ieee80211_tx_ampdu *, int);
+	int			(*ic_ampdu_rx_start)(struct ieee80211_node *,
+				    struct ieee80211_rx_ampdu *, int, int, int);
+	void			(*ic_ampdu_rx_stop)(struct ieee80211_node *,
+				    struct ieee80211_rx_ampdu *);
+
 #define	LKPI_MAC80211_DRV_STARTED	0x00000001
 	uint32_t			sc_flags;
 #define	LKPI_LHW_SCAN_RUNNING		0x00000001
@@ -209,6 +241,15 @@ struct lkpi_hw {	/* name it mac80211_sc? */
 };
 #define	LHW_TO_HW(_lhw)		(&(_lhw)->hw)
 #define	HW_TO_LHW(_hw)		container_of(_hw, struct lkpi_hw, hw)
+
+struct lkpi_chanctx {
+	bool				added_to_drv;	/* Managed by MO */
+	struct ieee80211_chanctx_conf	conf __aligned(CACHE_LINE_SIZE);
+};
+#define	LCHANCTX_TO_CHANCTX_CONF(_lchanctx)		\
+    (&(_lchanctx)->conf)
+#define	CHANCTX_CONF_TO_LCHANCTX(_conf)			\
+    container_of(_conf, struct lkpi_chanctx, conf)
 
 struct lkpi_wiphy {
 	const struct cfg80211_ops	*ops;
@@ -276,9 +317,9 @@ int lkpi_80211_mo_sta_state(struct ieee80211_hw *, struct ieee80211_vif *,
     struct lkpi_sta *, enum ieee80211_sta_state);
 int lkpi_80211_mo_config(struct ieee80211_hw *, uint32_t);
 int lkpi_80211_mo_assign_vif_chanctx(struct ieee80211_hw *, struct ieee80211_vif *,
-    struct ieee80211_chanctx_conf *);
+    struct ieee80211_bss_conf *, struct ieee80211_chanctx_conf *);
 void lkpi_80211_mo_unassign_vif_chanctx(struct ieee80211_hw *, struct ieee80211_vif *,
-    struct ieee80211_chanctx_conf **);
+    struct ieee80211_bss_conf *, struct ieee80211_chanctx_conf **);
 int lkpi_80211_mo_add_chanctx(struct ieee80211_hw *, struct ieee80211_chanctx_conf *);
 void lkpi_80211_mo_change_chanctx(struct ieee80211_hw *,
     struct ieee80211_chanctx_conf *, uint32_t);
@@ -287,7 +328,7 @@ void lkpi_80211_mo_remove_chanctx(struct ieee80211_hw *,
 void lkpi_80211_mo_bss_info_changed(struct ieee80211_hw *, struct ieee80211_vif *,
     struct ieee80211_bss_conf *, uint64_t);
 int lkpi_80211_mo_conf_tx(struct ieee80211_hw *, struct ieee80211_vif *,
-    uint16_t, const struct ieee80211_tx_queue_params *);
+    uint32_t, uint16_t, const struct ieee80211_tx_queue_params *);
 void lkpi_80211_mo_flush(struct ieee80211_hw *, struct ieee80211_vif *,
     uint32_t, bool);
 void lkpi_80211_mo_mgd_prepare_tx(struct ieee80211_hw *, struct ieee80211_vif *,
@@ -303,6 +344,9 @@ void lkpi_80211_mo_sta_pre_rcu_remove(struct ieee80211_hw *,
 int lkpi_80211_mo_set_key(struct ieee80211_hw *, enum set_key_cmd,
     struct ieee80211_vif *, struct ieee80211_sta *,
     struct ieee80211_key_conf *);
+int lkpi_80211_mo_ampdu_action(struct ieee80211_hw *, struct ieee80211_vif *,
+    struct ieee80211_ampdu_params *);
+
 
 #endif	/* _LKPI_SRC_LINUX_80211_H */
 // CHERI CHANGES START

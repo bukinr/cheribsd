@@ -219,7 +219,7 @@ tramp_should_include(const Obj_Entry *reqobj, const struct tramp_data *data)
 {
 	const char *sym;
 
-	if (data->target == NULL)
+	if (!cheri_gettag(data->target))
 		return (false);
 
 	if (reqobj == NULL)
@@ -239,9 +239,72 @@ tramp_should_include(const Obj_Entry *reqobj, const struct tramp_data *data)
 /*
  * Stack switching
  */
-#define	C18N_INIT_COMPART_COUNT	8
+void *allocate_rstk(unsigned);
 
-#ifndef __ARM_MORELLO_PURECAP_BENCHMARK_ABI
+static compart_id_t
+stack_index_to_compart_id(unsigned index)
+{
+	struct stk_table dummy;
+
+	return (sizeof(dummy.stacks->bottom) * index / sizeof(*dummy.stacks));
+}
+
+static size_t
+compart_id_to_stack_index(compart_id_t cid)
+{
+	struct stk_table dummy;
+
+	return (cid - offsetof(typeof(dummy), stacks) / sizeof(*dummy.stacks));
+}
+
+static void init_compart_stack(void **, compart_id_t);
+
+static void
+init_compart_stack(void **stk, compart_id_t cid)
+{
+	/*
+	 * INVARIANT: The bottom of a compartment's stack contains a capability
+	 * to the top of the stack either when the compartment was last entered
+	 * or when it was last exited from, which ever occured later.
+	 */
+	stk[-1] = cheri_clearperm(stk - 1, CHERI_PERM_SW_VMEM);
+	if (
+#ifdef __ARM_MORELLO_PURECAP_BENCHMARK_ABI
+	    /*
+	     * Do not check whether tracing is enabled if initialising the RTLD
+	     * stack because the global variable might not have been relocated
+	     * yet. This is only needed under the benchmark ABI, which has the
+	     * concept of an RTLD stack.
+	     */
+	    cid == C18N_RTLD_COMPART_ID ||
+#endif
+	    ld_compartment_utrace != NULL)
+		*--((uintptr_t **)stk)[-1] = cid;
+}
+
+#ifdef __ARM_MORELLO_PURECAP_BENCHMARK_ABI
+uintptr_t c18n_init_rtld_stack(uintptr_t, void **);
+
+uintptr_t
+c18n_init_rtld_stack(uintptr_t ret, void **csp)
+{
+	init_compart_stack(csp, C18N_RTLD_COMPART_ID);
+
+	return (ret);
+}
+
+/*
+ * Save the initial stack (either at program launch or at thread start) in the
+ * stack table.
+ */
+static void
+init_stk_table(struct stk_table *table)
+{
+	void *sp = cheri_getstack();
+	table->stacks[compart_id_to_stack_index(C18N_RTLD_COMPART_ID)].bottom =
+	    cheri_setoffset(sp, cheri_getlen(sp));
+}
+#else
 /*
  * Set a dummy Restricted stack so that trampolines do not need to test if the
  * Restricted stack is valid.
@@ -285,7 +348,7 @@ pop_stk_table(_Atomic(struct stk_table *) *head)
 	     */
 	    memory_order_acquire, memory_order_acquire));
 
-	table->resolver = _rtld_get_rstk;
+	table->resolver = allocate_rstk;
 
 	return (table);
 }
@@ -307,7 +370,7 @@ stk_table_expand(struct stk_table *table, size_t n_capacity, bool lock)
 		rtld_fatal("realloc failed");
 
 	if (create) {
-		table->resolver = _rtld_get_rstk;
+		table->resolver = allocate_rstk;
 		o_capacity = 0;
 	} else
 		o_capacity = table->capacity;
@@ -365,32 +428,37 @@ free_stk_table(struct stk_table *table)
 	atomic_fetch_add_explicit(&free_stk_table_cnt, 1, memory_order_release);
 }
 
-static compart_id_t
-table_index_to_compart_id(unsigned index)
+static void *
+stk_create(size_t size)
 {
-	struct stk_table dummy;
+	char *stk;
 
-	return (sizeof(dummy.stacks->bottom) * index / sizeof(*dummy.stacks));
+	stk = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_STACK, -1, 0);
+	if (stk == MAP_FAILED)
+		rtld_fatal("mmap failed");
+
+	stk = cheri_clearperm(stk + size, CHERI_PERM_EXECUTIVE);
+
+	return (stk);
 }
 
 /* Default stack size in libthr */
 #define	C18N_STACK_SIZE	(sizeof(void *) / 4 * 1024 * 1024)
 
-void *get_rstk(unsigned);
+void *allocate_rstk_impl(unsigned);
 
 void *
-get_rstk(unsigned index)
+allocate_rstk_impl(unsigned index)
 {
-	void **stk;
+	void *stk;
 	size_t capacity, size;
 	compart_id_t cid, cid_off;
 	struct stk_table *table;
 
 	table = stk_table_get();
 
-	cid = table_index_to_compart_id(index);
-	cid_off = cid -
-	    offsetof(typeof(*table), stacks) / sizeof(*table->stacks);
+	cid = stack_index_to_compart_id(index);
+	cid_off = compart_id_to_stack_index(cid);
 
 	capacity = table->capacity;
 	if (capacity <= cid_off) {
@@ -401,16 +469,8 @@ get_rstk(unsigned index)
 	assert(table->stacks[cid_off].bottom == NULL);
 
 	size = C18N_STACK_SIZE;
-	stk = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_STACK, -1, 0);
-	if (stk == MAP_FAILED)
-		rtld_fatal("mmap failed");
-
-	stk = (void **)((char *)stk + size);
-	stk = cheri_clearperm(stk, CHERI_PERM_EXECUTIVE);
-
-	stk[-1] = cheri_clearperm(stk - 1, CHERI_PERM_SW_VMEM);
-	if (ld_compartment_utrace != NULL)
-		*--((uintptr_t **)stk)[-1] = cid;
+	stk = stk_create(size);
+	init_compart_stack(stk, cid);
 
 	table->stacks[cid_off].bottom = stk;
 	table->stacks[cid_off].size = size;
@@ -420,17 +480,26 @@ get_rstk(unsigned index)
 
 struct trusted_frame {
 	ptraddr_t next;
-	ptraddr_t o_stack;
-	void **stack;
+	uint8_t ret_args : 2;
+	ptraddr_t cookie : 62;
+	/*
+	 * INVARIANT: This field contains the top of the caller's stack when the
+	 * caller was last entered.
+	 */
+	void **o_stack;
 	void *ret_addr;
 };
 
-struct jmp_args { void **buf; void *val; };
+/*
+ * Returning this struct allows us to control the content of unused return value
+ * registers.
+ */
+struct jmp_args { uintptr_t ret; uintptr_t dummy; };
 
-struct jmp_args _rtld_setjmp_impl(void **, void *, struct trusted_frame *);
+struct jmp_args _rtld_setjmp_impl(uintptr_t, void **, struct trusted_frame *);
 
 struct jmp_args
-_rtld_setjmp_impl(void **buf, void *val, struct trusted_frame *csp)
+_rtld_setjmp_impl(uintptr_t ret, void **buf, struct trusted_frame *csp)
 {
 	/*
 	 * Before setjmp is called, the top of the Executive stack contains:
@@ -443,15 +512,17 @@ _rtld_setjmp_impl(void **buf, void *val, struct trusted_frame *csp)
 	 * buffer.
 	 */
 
-	*buf++ = cheri_seal(cheri_setaddress(csp, csp->next), sealer_jmpbuf);
+	*buf = cheri_seal(cheri_setaddress(csp, csp->next), sealer_jmpbuf);
 
-	return ((struct jmp_args) { .buf = buf, .val = val });
+	return ((struct jmp_args) { .ret = ret });
 }
 
-struct jmp_args _rtld_longjmp_impl(void **, void *, struct trusted_frame *);
+struct jmp_args _rtld_longjmp_impl(uintptr_t, void **, struct trusted_frame *,
+    void **);
 
 struct jmp_args
-_rtld_longjmp_impl(void **buf, void *val, struct trusted_frame *csp)
+_rtld_longjmp_impl(uintptr_t ret, void **buf, struct trusted_frame *csp,
+    void **rcsp)
 {
 	/*
 	 * Before longjmp is called, the top of the Executive stack contains:
@@ -466,25 +537,40 @@ _rtld_longjmp_impl(void **buf, void *val, struct trusted_frame *csp)
 	 */
 
 	struct trusted_frame *target, *cur = csp;
+	void **stack;
 
-	target = cheri_unseal(*buf++, sealer_jmpbuf);
+	target = cheri_unseal(*buf, sealer_jmpbuf);
 
 	if (!cheri_is_subset(cur, target) || cur->next > (ptraddr_t)target)
 		rtld_fatal("longjmp: Bad target");
 
 	/*
-	 * Skip the first frame because it will be unwinded when this call
-	 * returns.
+	 * Unwind each frame before the target frame.
 	 */
-	while (cur->next < (ptraddr_t)target) {
+	while (cur < target) {
+		stack = cur->o_stack;
+		stack = cheri_setoffset(stack, cheri_getlen(stack));
+		stack[-1] = cur->o_stack;
 		cur = cheri_setaddress(cur, cur->next);
-		cur->stack[-1] = cheri_setaddress(cur->stack, cur->o_stack);
 	}
 
-	*cur = *csp;
+	if (cur != target)
+		rtld_fatal("longjmp: Bad target");
+
+	/*
+	 * Set the next frame to the target frame.
+	 */
 	csp->next = (ptraddr_t)cur;
 
-	return ((struct jmp_args) { .buf = buf, .val = val });
+	/*
+	 * Maintain the invariant of the trusted frame and the invariant of the
+	 * bottom of the target compartment's stack.
+	 */
+	stack = cheri_setoffset(rcsp, cheri_getlen(rcsp));
+	csp->o_stack = stack[-1];
+	stack[-1] = rcsp;
+
+	return ((struct jmp_args) { .ret = ret });
 }
 
 /*
@@ -498,9 +584,9 @@ struct tramp_pg {
 };
 
 /*
-* 64K is the largest size such that any capability-aligned proper
-* sub-range can be exactly bounded by a Morello capability.
-*/
+ * 64K is the largest size such that any capability-aligned proper
+ * sub-range can be exactly bounded by a Morello capability.
+ */
 #define	C18N_TRAMPOLINE_PAGE_SIZE	64 * 1024
 
 static struct tramp_pg *
@@ -527,19 +613,14 @@ tramp_pg_push(struct tramp_pg *pg, size_t len)
 	size_t size = atomic_load_explicit(&pg->size, memory_order_relaxed);
 
 	do {
-		/*
-		 * Align the trampoline to two capabilities so that the first
-		 * instruction and the capability preceding it reside on the
-		 * same cache line.
-		 */
-		tramp = roundup2(pg->trampolines + size, 2 * _Alignof(void *));
+		tramp = roundup2(pg->trampolines + size,
+		    _Alignof(struct tramp_header));
 		n_size = tramp + len - pg->trampolines;
 		if (n_size > pg->capacity)
 			return (NULL);
 	} while (!atomic_compare_exchange_weak_explicit(&pg->size,
 	    /*
-	     * Relaxed ordering is sufficient because there are no
-	     * side-effects.
+	     * Relaxed ordering is sufficient because there are no side-effects.
 	     */
 	    &size, n_size, memory_order_relaxed, memory_order_relaxed));
 
@@ -555,7 +636,7 @@ static struct {
 	_Alignas(CACHE_LINE_SIZE) _Atomic(slot_idx_t) size;
 	size_t back;
 	int exp;
-	struct tramp_data *data;
+	struct tramp_header **data;
 	struct tramp_map_kv {
 		_Atomic(ptraddr_t) key;
 		_Atomic(slot_idx_t) index;
@@ -652,7 +733,7 @@ resize_table(int exp)
 	size = atomic_load_explicit(&tramp_table.size, memory_order_relaxed);
 
 	for (slot_idx_t idx = 0; idx < size; ++idx) {
-		key = (ptraddr_t)tramp_table.data[idx].target;
+		key = (ptraddr_t)tramp_table.data[idx]->target;
 		hash = pointer_hash(key);
 		slot = hash;
 
@@ -669,11 +750,12 @@ resize_table(int exp)
 }
 
 void
-tramp_hook(int, void *, const Obj_Entry *, const Elf_Sym *, void *, void *);
+tramp_hook_impl(void *, int, void *, const Obj_Entry *, const Elf_Sym *,
+    void *);
 
 void
-tramp_hook(int event, void *target, const Obj_Entry *obj, const Elf_Sym *def,
-    void *link, void *rcsp)
+tramp_hook_impl(void *rcsp, int event, void *target, const Obj_Entry *obj,
+    const Elf_Sym *def, void *link)
 {
 	Elf_Word sym_num;
 	const char *sym;
@@ -689,13 +771,22 @@ tramp_hook(int event, void *target, const Obj_Entry *obj, const Elf_Sym *def,
 	sym = def == NULL ? "<unknown>" : strtab_value(obj, def->st_name);
 	callee = comparts.data[obj->compart_id]->name;
 
+#ifdef __ARM_MORELLO_PURECAP_BENCHMARK_ABI
+	caller_id =
+	    ((uintptr_t *)cheri_setoffset(rcsp, cheri_getlen(rcsp)))[-2];
+	(void)link;
+#else
 	if (cheri_gettag(link) &&
 	    (cheri_getperm(link) & CHERI_PERM_EXECUTIVE) == 0)
 		caller_id = ((uintptr_t *)
-		    cheri_setaddress(rcsp, cheri_gettop(rcsp)))[-2];
+		    cheri_setoffset(rcsp, cheri_getlen(rcsp)))[-2];
 	else
-		caller_id = C18N_RTLD_COMPARTMENT_ID;
-	caller = comparts.data[caller_id]->name;
+		caller_id = C18N_RTLD_COMPART_ID;
+#endif
+	if (caller_id < C18N_RTLD_COMPART_ID)
+		caller = "<unknown>";
+	else
+		caller = comparts.data[caller_id]->name;
 
 	if (ld_compartment_utrace != NULL) {
 		memcpy(ut.sig, rtld_utrace_sig, sizeof(ut.sig));
@@ -711,19 +802,22 @@ tramp_hook(int event, void *target, const Obj_Entry *obj, const Elf_Sym *def,
 		getpid();
 }
 
-#define	C18N_MAX_TRAMPOLINE_SIZE	768
+#define	C18N_MAX_TRAMP_SIZE	768
 
-static void *
+static struct tramp_header *
 tramp_pgs_append(const struct tramp_data *data)
 {
 	size_t len;
 	/* A capability-aligned buffer large enough to hold a trampoline */
-	_Alignas(_Alignof(void *)) char tmp[C18N_MAX_TRAMPOLINE_SIZE];
-	char *tramp, *entry = tmp;
+	_Alignas(_Alignof(struct tramp_header)) char buf[C18N_MAX_TRAMP_SIZE];
+	char *bufp = buf;
+	struct tramp_header **headerp = (struct tramp_header **)&bufp;
+
+	char *tramp;
 	struct tramp_pg *pg;
 
 	/* Fill a temporary buffer with the trampoline and obtain its length */
-	len = tramp_compile((void **)&entry, data);
+	len = tramp_compile(headerp, data);
 
 	pg = atomic_load_explicit(&tramp_pgs.head, memory_order_acquire);
 	tramp = tramp_pg_push(pg, len);
@@ -744,23 +838,18 @@ tramp_pgs_append(const struct tramp_data *data)
 	}
 	assert(cheri_gettag(tramp));
 
-	entry = tramp + (entry - tmp);
-	memcpy(tramp, tmp, len);
+	bufp = tramp + (bufp - buf);
+	memcpy(tramp, buf, len);
 
 	/*
 	 * Ensure i- and d-cache coherency after writing executable code. The
 	 * __clear_cache procedure rounds the addresses to cache-line-aligned
-	 * addresses. Derive the start/end addresses from pg so that they have
+	 * addresses. Derive the start address from pg so that it has
 	 * sufficiently large bounds to contain these rounded addresses.
 	 */
-	__clear_cache(cheri_copyaddress(pg, entry),
-	    cheri_copyaddress(pg, tramp + len));
+	__clear_cache(cheri_copyaddress(pg, (*headerp)->entry), tramp + len);
 
-	entry = cheri_clearperm(entry, FUNC_PTR_REMOVE_PERMS);
-#ifndef __ARM_MORELLO_PURECAP_BENCHMARK_ABI
-	entry = cheri_capmode(entry);
-#endif
-	return (cheri_sealentry(entry));
+	return (*headerp);
 }
 
 static bool
@@ -771,55 +860,55 @@ func_sig_equal(struct func_sig lhs, struct func_sig rhs)
 		lhs.ret_args == rhs.ret_args);
 }
 
-static bool
-func_sig_compatible(struct func_sig lhs, struct func_sig rhs)
-{
-	return (!lhs.valid || !rhs.valid || func_sig_equal(lhs, rhs));
-}
-
-static void *
-tramp_get_entry(const struct tramp_data *found, const struct tramp_data *data)
-{
-	if (!func_sig_compatible(found->sig, data->sig))
-		rtld_fatal(
-		    "Incompatible signatures for function %s: "
-		    "%s requests " C18N_SIG_FORMAT_STRING " but %s provides "
-		    C18N_SIG_FORMAT_STRING,
-		    strtab_value(data->defobj, data->def->st_name),
-		    data->defobj->path, C18N_SIG_FORMAT(data->sig),
-		    found->defobj->path, C18N_SIG_FORMAT(found->sig));
-
-	return (found->entry);
-}
-
-static void *
-tramp_create_entry(struct tramp_data *found, const struct tramp_data *data)
+static void
+tramp_check_sig(struct tramp_header *found, const Obj_Entry *reqobj,
+    const struct tramp_data *data)
 {
 	struct func_sig sig;
 
-	*found = *data;
-	if (found->def != NULL) {
-		sig = tramp_fetch_sig(found->defobj,
+	if (data->sig.valid && found->def != NULL) {
+		sig = sigtab_get(found->defobj,
 		    found->def - found->defobj->symtab);
-		if (!found->sig.valid)
-			found->sig = sig;
-		else if (!func_sig_compatible(found->sig, sig))
-			rtld_fatal(
-			    "Incompatible signatures for function %s: "
-			    "requests " C18N_SIG_FORMAT_STRING
-			    " but %s provides " C18N_SIG_FORMAT_STRING,
-			    strtab_value(found->defobj, found->def->st_name),
-			    C18N_SIG_FORMAT(found->sig), found->defobj->path,
-			    C18N_SIG_FORMAT(sig));
-	}
 
-	return (found->entry = tramp_pgs_append(found));
+		rtld_require(!sig.valid || func_sig_equal(data->sig, sig),
+		    "Incompatible signatures for function %s: "
+		    "%s requests " C18N_SIG_FORMAT_STRING " but "
+		    "%s provides " C18N_SIG_FORMAT_STRING,
+		    strtab_value(found->defobj, found->def->st_name),
+		    reqobj->path, C18N_SIG_FORMAT(data->sig),
+		    found->defobj->path, C18N_SIG_FORMAT(sig));
+	}
+}
+
+static struct tramp_header *
+tramp_create(const struct tramp_data *data)
+{
+	struct tramp_data newdata = *data;
+
+	if (!newdata.sig.valid && newdata.def != NULL)
+		newdata.sig = sigtab_get(newdata.defobj,
+		    newdata.def - newdata.defobj->symtab);
+
+	return (tramp_pgs_append(&newdata));
+}
+
+static void *
+tramp_make_entry(struct tramp_header *header)
+{
+	void *entry = header->entry;
+
+	entry = cheri_clearperm(entry, FUNC_PTR_REMOVE_PERMS);
+#ifndef __ARM_MORELLO_PURECAP_BENCHMARK_ABI
+	entry = cheri_capmode(entry);
+#endif
+
+	return (cheri_sealentry(entry));
 }
 
 void *
 tramp_intern(const Obj_Entry *reqobj, const struct tramp_data *data)
 {
-	void *entry;
+	struct tramp_header *header;
 	RtldLockState lockstate;
 	ptraddr_t target = (ptraddr_t)data->target;
 	const uint32_t hash = pointer_hash(target);
@@ -828,9 +917,8 @@ tramp_intern(const Obj_Entry *reqobj, const struct tramp_data *data)
 	int exp;
 
 	/* reqobj == NULL iff the request is by RTLD */
-	assert((reqobj == NULL || data->def != NULL) &&
-	    data->defobj != NULL && data->entry == NULL &&
-	    func_sig_legal(data->sig));
+	assert((reqobj == NULL || data->def != NULL) && data->defobj != NULL
+	    && func_sig_legal(data->sig));
 
 	if (!tramp_should_include(reqobj, data))
 		return (data->target);
@@ -890,7 +978,10 @@ start:
 		    memory_order_acquire);
 	while (idx == -1);
 
-	entry = tramp_get_entry(&tramp_table.data[idx], data);
+	/*
+	 * Load the data array entry and exit the critical region.
+	 */
+	header = tramp_table.data[idx];
 	goto end;
 
 insert:
@@ -902,7 +993,7 @@ insert:
 	 *
 	 * Create the data array entry.
 	 */
-	entry = tramp_create_entry(&tramp_table.data[idx], data);
+	header = tramp_table.data[idx] = tramp_create(data);
 
 	/*
 	 * Store-release the index.
@@ -927,29 +1018,74 @@ insert:
 	}
 end:
 	lock_release(rtld_tramp_lock, &lockstate);
-	return (entry);
+
+	tramp_check_sig(header, reqobj, data);
+
+	return (tramp_make_entry(header));
 }
 
-/*
- * APIs
- */
 struct func_sig
-tramp_fetch_sig(const Obj_Entry *obj, unsigned long symnum)
+sigtab_get(const Obj_Entry *obj, unsigned long symnum)
 {
 	if (symnum >= obj->dynsymcount)
 		rtld_fatal("Invalid symbol number %lu for object %s.",
 		    symnum, obj->path);
 
 	if (obj->sigtab == NULL)
-		return ((struct func_sig) {});
+		return ((struct func_sig) { .valid = false });
+
 	return (obj->sigtab[symnum]);
 }
 
+static struct tramp_header *
+tramp_reflect(void *entry)
+{
+	struct tramp_pg *page = atomic_load_explicit(&tramp_pgs.head,
+	    memory_order_acquire);
+	uintptr_t data = (uintptr_t)entry;
+	struct tramp_header *ret;
+
+	if (!cheri_gettag(data))
+		return (NULL);
+
+#ifndef __ARM_MORELLO_PURECAP_BENCHMARK_ABI
+	data -= 1;
+#endif
+	data = (uintptr_t)__containerof((void *)data, struct tramp_header,
+	    entry);
+
+	while (page != NULL) {
+		ret = cheri_buildcap(page, data);
+		if (cheri_gettag(ret)) {
+			if (cheri_gettag(ret->target))
+				/*
+				 * At this point, the provided data must have
+				 * been (a) tagged and (b) pointing to the entry
+				 * point of a trampoline.
+				 */
+				return (ret);
+			else
+				rtld_fatal("c18n: A return capability to a "
+				    "trampoline is passed to tramp_reflect");
+		}
+		page = SLIST_NEXT(page, link);
+	}
+
+	return (NULL);
+}
+
+/*
+ * APIs
+ */
+#define	C18N_FUNC_SIG_COUNT	72
+#define	C18N_INIT_COMPART_COUNT	8
+
 void
-tramp_init(void)
+c18n_init(void)
 {
 	int exp = 9;
 	uintptr_t sealer;
+	struct stk_table *table;
 
 	/*
 	 * Allocate otypes for RTLD use
@@ -971,7 +1107,7 @@ tramp_init(void)
 	 * Initialise compartment database
 	 */
 	comparts_data_expand(C18N_INIT_COMPART_COUNT);
-	while (comparts.size < C18N_RTLD_COMPARTMENT_ID)
+	while (comparts.size < C18N_RTLD_COMPART_ID)
 		comparts.data[comparts.size++] = NULL;
 	comparts.data[comparts.size++] = &rtld_compart;
 	comparts.data[comparts.size++] = &tcb_compart;
@@ -979,20 +1115,21 @@ tramp_init(void)
 	/*
 	 * Initialise stack table
 	 */
-	stk_table_set(stk_table_expand(NULL, C18N_INIT_COMPART_COUNT, false));
+	table = stk_table_expand(NULL, C18N_INIT_COMPART_COUNT, false);
 
 #ifdef __ARM_MORELLO_PURECAP_BENCHMARK_ABI
 	/*
 	 * Under the benchmark ABI, the trusted stack is a pure data structure
 	 * that does not simultaneously serve as RTLD's execution stack. Create
-	 * an execution stack to be used as the trusted stack while RTLD is
-	 * bootstrapping.
+	 * a trusted stack while RTLD is bootstrapping.
 	 */
-	void **stk = get_rstk(compart_id_to_index(C18N_RTLD_COMPARTMENT_ID));
-	trusted_stk_set(stk[-1]);
+	trusted_stk_set(stk_create(C18N_STACK_SIZE));
+	init_stk_table(table);
 #else
 	untrusted_stk_set(&dummy_stack);
 #endif
+
+	stk_table_set(table);
 
 	/*
 	 * Initialise trampoline table
@@ -1004,13 +1141,30 @@ tramp_init(void)
 }
 
 void
-tramp_add_comparts(struct policy *pol)
+c18n_add_comparts(struct policy *pol)
 {
 	if (pol == NULL)
 		return;
 	comparts_data_expand(comparts.size + pol->count);
 	for (size_t i = 0; i < pol->count; ++i)
 		comparts.data[comparts.size++] = &pol->coms[i];
+}
+
+void *
+c18n_return_address(void)
+{
+	struct trusted_frame *tframe;
+
+#ifdef __ARM_MORELLO_PURECAP_BENCHMARK_ABI
+	tframe = trusted_stk_get();
+#else
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wframe-address"
+	tframe = __builtin_frame_address(2);
+#pragma clang diagnostic pop
+#endif
+
+	return (tframe->ret_addr);
 }
 
 /*
@@ -1038,45 +1192,163 @@ void _rtld_thread_start_impl(struct pthread *);
 void
 _rtld_thread_start_impl(struct pthread *curthread)
 {
-	stk_table_set(pop_stk_table(&free_stk_tables));
-#ifndef __ARM_MORELLO_PURECAP_BENCHMARK_ABI
+	struct stk_table *table = pop_stk_table(&free_stk_tables);
+
+	/* See c18n_init */
+#ifdef __ARM_MORELLO_PURECAP_BENCHMARK_ABI
+	trusted_stk_set(stk_create(C18N_STACK_SIZE));
+	init_stk_table(table);
+#else
 	untrusted_stk_set(&dummy_stack);
 #endif
+
+	stk_table_set(table);
+
 	thr_thread_start(curthread);
 }
 
-void _rtld_thr_exit_impl(long *);
+void _rtld_thr_exit(long *);
 
 void
-_rtld_thr_exit_impl(long *state)
+_rtld_thr_exit(long *state)
 {
 	char *stk;
 	size_t size;
 	struct stk_table *table = stk_table_get();
 
-	for (size_t i = 0; i < table->capacity; ++i) {
-		stk = table->stacks[i].bottom;
-		if (stk != NULL) {
-			size = table->stacks[i].size;
+	for (size_t i = C18N_RTLD_COMPART_ID; i < table->capacity; ++i) {
+		size = table->stacks[i].size;
+		if (size != 0) {
+			stk = table->stacks[i].bottom;
 			if (munmap(stk - size, size) != 0)
-				rtld_fatal("munmap failed");
-			table->stacks[i] = (struct stk_table_stack) {};
+				_exit(2);
+			table->stacks[i] = (struct stk_table_stack) {
+				.bottom = allocate_rstk,
+				.size = 0
+			};
 		}
 	}
 
 	free_stk_table(table);
 
+#ifdef __ARM_MORELLO_PURECAP_BENCHMARK_ABI
+	/*
+	 * A trusted stack is created upon program start and thread creation.
+	 * Unmap the stack here.
+	 */
+	void *trusted_stk = trusted_stk_get();
+	trusted_stk = cheri_setoffset(trusted_stk, 0);
+	if (munmap(trusted_stk, cheri_getlen(trusted_stk)) != 0)
+		_exit(2);
+#endif
+
 	__sys_thr_exit(state);
 }
 
-static void (*thr_sighandler)(int, siginfo_t *, void *);
+/*
+ * Signal support
+ */
+void _rtld_dispatch_signal(int, siginfo_t *, void *);
+
+#ifndef __ARM_MORELLO_PURECAP_BENCHMARK_ABI
+ptraddr_t sighandler_fix_link(struct trusted_frame *, ucontext_t *);
+
+ptraddr_t
+sighandler_fix_link(struct trusted_frame *csp, ucontext_t *ucp)
+{
+	ptraddr_t ret = csp->next;
+
+	csp->next = ucp->uc_mcontext.mc_capregs.cap_sp;
+
+	return (ret);
+}
+
+void sighandler_unfix_link(struct trusted_frame *, ptraddr_t);
+
+void sighandler_unfix_link(struct trusted_frame *csp, ptraddr_t link)
+{
+	csp->next = link;
+}
+#endif
+
+static struct sigaction_map {
+	void *o_handler;
+	__siginfohandler_t *n_handler;
+} sigaction_map[_SIG_MAXSIG];
+
+struct dispatch_signal_ret {
+	siginfo_t *info;
+	ucontext_t *ucp;
+};
+
+__siginfohandler_t *dispatch_signal_get(int);
+
+__siginfohandler_t *
+dispatch_signal_get(int sig)
+{
+	return (sigaction_map[sig - 1].n_handler);
+}
+
+struct dispatch_signal_ret dispatch_signal_begin(__siginfohandler_t,
+    siginfo_t *, void *);
+
+struct dispatch_signal_ret
+dispatch_signal_begin(__siginfohandler_t sigfunc, siginfo_t *info,
+    void *_ucp)
+{
+	compart_id_t cid = tramp_reflect(sigfunc)->defobj->compart_id;
+	struct stk_table *table = stk_table_get();
+	struct stk_table_stack stack;
+	ucontext_t *ucp = _ucp;
+	char **stk_bot;
+	void *stk_top;
+
+	stack = table->stacks[compart_id_to_stack_index(cid)];
+
+	if (stack.size == 0)
+		stk_bot = allocate_rstk_impl(compart_id_to_index(cid));
+	else
+		stk_bot = stack.bottom;
+
+	stk_top = stk_bot[-1];
+
+	stk_bot[-1] -= sizeof(*ucp);
+	ucp = memcpy(stk_bot[-1], ucp, sizeof(*ucp));
+
+	stk_bot[-1] -= sizeof(*info);
+	info = memcpy(stk_bot[-1], info, sizeof(*info));
+
+	ucp->uc_mcontext.mc_capregs.cap_sp = (uintptr_t)stk_top;
+
+	return (struct dispatch_signal_ret) {
+		.info = info,
+		.ucp = ucp
+	};
+}
+
+void dispatch_signal_end(ucontext_t *, ucontext_t *);
+
+void
+dispatch_signal_end(ucontext_t *new, ucontext_t *old __unused)
+{
+	void *top = (void **)new->uc_mcontext.mc_capregs.cap_sp;
+	void **bot = cheri_setoffset(top, cheri_getlen(top));
+
+	memset(new, 0, sizeof(*new));
+
+	bot[-1] = top;
+}
+
+extern void (*signal_dispatcher)(int, siginfo_t *, void *);
+
+void (*signal_dispatcher)(int, siginfo_t *, void *) = _rtld_dispatch_signal;
 
 void
 _rtld_sighandler_init(void (*p)(int, siginfo_t *, void *))
 {
-	assert((cheri_getperm(p) & CHERI_PERM_EXECUTIVE) == 0);
-	assert(thr_sighandler == NULL);
-	thr_sighandler = tramp_intern(NULL, &(struct tramp_data) {
+	assert(signal_dispatcher == _rtld_dispatch_signal &&
+	    (cheri_getperm(p) & CHERI_PERM_EXECUTIVE) == 0);
+	signal_dispatcher = tramp_intern(NULL, &(struct tramp_data) {
 		.target = p,
 		.defobj = obj_from_addr(p),
 		.sig = (struct func_sig) {
@@ -1086,17 +1358,76 @@ _rtld_sighandler_init(void (*p)(int, siginfo_t *, void *))
 	});
 }
 
-void _rtld_sighandler_impl(int, siginfo_t *, void *, ptraddr_t *);
+void *_rtld_sigaction_begin(int, struct sigaction *);
 
-void
-_rtld_sighandler_impl(int sig, siginfo_t *info, void *_ucp,
-    ptraddr_t *frame __unused)
+void *
+_rtld_sigaction_begin(int sig, struct sigaction *act)
 {
-#ifndef __ARM_MORELLO_PURECAP_BENCHMARK_ABI
-	ucontext_t *ucp = _ucp;
+	struct func_sig fsig;
+	void *context = act->sa_sigaction;
+	struct tramp_header *header = tramp_reflect(context);
+	const Obj_Entry *defobj;
 
-	*frame = (ptraddr_t)ucp->uc_mcontext.mc_capregs.cap_sp;
-#endif
+	/*
+	 * If the signal handler is not already wrapped by a trampoline, wrap it
+	 * in one.
+	 */
+	if (header == NULL) {
+		defobj = obj_from_addr(context);
 
-	thr_sighandler(sig, info, _ucp);
+		/*
+		 * If SA_SIGINFO is not set, the signal handler can have one of
+		 * two possible signatures.
+		 */
+		if ((act->sa_flags & SA_SIGINFO) == 0)
+			fsig = (struct func_sig) { .valid = false };
+		else
+			fsig = (struct func_sig) {
+				.valid = true,
+				.reg_args = 3, .mem_args = false,
+				.ret_args = NONE
+			};
+
+		context = tramp_intern(NULL, &(struct tramp_data) {
+		    .target = context,
+		    .defobj = defobj,
+		    .sig = fsig
+		});
+	} else
+		defobj = header->defobj;
+
+	/*
+	 * XXX: Enforce signal handling policy. We need to determine who is
+	 * registering the signal, who is handling the signal, and ensure both
+	 * are allowed.
+	 */
+	(void)sig;
+	if (defobj->compart_id == C18N_RTLD_COMPART_ID)
+		rtld_fatal("c18n: Attempting to register an RTLD function as "
+		    "a signal handler");
+
+	act->sa_flags |= SA_SIGINFO;
+
+	return (context);
+}
+
+void _rtld_sigaction_end(int, void *, const struct sigaction *,
+    struct sigaction *);
+
+void _rtld_sigaction_end(int sig, void *context, const struct sigaction *act,
+    struct sigaction *oact)
+{
+	struct sigaction_map *slot = &sigaction_map[sig - 1];
+
+	/*
+	 * If o_handler == NULL, then we must have oact->sa_sigaction == NULL
+	 */
+	if (oact != NULL && slot->o_handler != NULL)
+		oact->sa_sigaction = slot->o_handler;
+
+	if (act != NULL) {
+		slot->o_handler = act->sa_sigaction;
+		if (context != NULL)
+			slot->n_handler = context;
+	}
 }

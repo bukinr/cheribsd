@@ -41,6 +41,7 @@ SUBDIR=	\
 	${_arcmsr} \
 	${_allwinner} \
 	${_armv8crypto} \
+	${_armv8_rng} \
 	${_asmc} \
 	ata \
 	ath \
@@ -341,7 +342,6 @@ SUBDIR=	\
 	${_rockchip} \
 	rtsx \
 	${_rtw88} \
-	${_rtw88fw} \
 	rtwn \
 	rtwn_pci \
 	rtwn_usb \
@@ -569,14 +569,15 @@ _iwlwifi=	iwlwifi
 .if ${MK_SOURCELESS_UCODE} != "no"
 _iwlwififw=	iwlwififw
 .endif
+_rtw88=		rtw88
+_vmware=	vmware
+.endif
+
+.if ${MACHINE_CPUARCH} == "aarch64" || ${MACHINE_CPUARCH} == "amd64" || \
+    ${MACHINE_CPUARCH} == "i386" || ${MACHINE_ARCH} == "armv7"
 .if !${MACHINE_ABI:Mpurecap}
 _ossl=		ossl
 .endif
-_rtw88=		rtw88
-.if ${MK_SOURCELESS_UCODE} != "no"
-_rtw88fw=	rtw88fw
-.endif
-_vmware=	vmware
 .endif
 
 # MAC framework
@@ -696,6 +697,7 @@ _cxgb=		cxgb
 
 .if ${MACHINE_CPUARCH} == "aarch64"
 _armv8crypto=	armv8crypto
+_armv8_rng=	armv8_rng
 _dpaa2=		dpaa2
 _sff=		sff
 _em=		em

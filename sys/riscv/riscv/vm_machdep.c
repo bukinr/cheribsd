@@ -32,7 +32,6 @@
  * SUCH DAMAGE.
  */
 
-#include <sys/cdefs.h>
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/limits.h>
@@ -50,6 +49,7 @@
 
 #include <machine/riscvreg.h>
 #include <machine/cpu.h>
+#include <machine/cpufunc.h>
 #include <machine/pcb.h>
 #include <machine/frame.h>
 #include <machine/sbi.h>
@@ -304,6 +304,12 @@ cpu_procctl(struct thread *td __unused, int idtype __unused, id_t id __unused,
 {
 
 	return (EINVAL);
+}
+
+void
+cpu_sync_core(void)
+{
+	fence_i();
 }
 /*
  * CHERI CHANGES START

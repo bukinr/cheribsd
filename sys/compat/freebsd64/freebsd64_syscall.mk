@@ -56,8 +56,6 @@ MIASM =  \
 	freebsd64_chroot.o \
 	freebsd64_msync.o \
 	vfork.o \
-	sbrk.o \
-	sstk.o \
 	freebsd11_vadvise.o \
 	freebsd64_munmap.o \
 	freebsd64_mprotect.o \
@@ -428,4 +426,8 @@ MIASM =  \
 	freebsd64_fspacectl.o \
 	sched_getcpu.o \
 	freebsd64_swapoff.o \
-	kqueuex.o
+	kqueuex.o \
+	membarrier.o \
+	timerfd_create.o \
+	freebsd64_timerfd_gettime.o \
+	freebsd64_timerfd_settime.o

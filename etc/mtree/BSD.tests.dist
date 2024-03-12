@@ -278,6 +278,8 @@
             ..
         ..
     ..
+    include
+    ..
     lib
         atf
             libatf-c
@@ -434,6 +436,8 @@
         rc
         ..
         rtld-elf
+            rtld_deepbind
+            ..
         ..
         tftpd
         ..
@@ -793,6 +797,8 @@
                 ..
                 stripe
                 ..
+                union
+                ..
                 uzip
                     etalon
                     ..
@@ -1079,6 +1085,8 @@
         ..
         locale
         ..
+        lockf
+        ..
         m4
         ..
         mkimg
@@ -1092,6 +1100,8 @@
         patch
         ..
         pr
+        ..
+        printenv
         ..
         printf
         ..
@@ -1167,8 +1177,6 @@
         ..
         makefs
         ..
-        mixer
-        ..
         newsyslog
         ..
         nmtree
@@ -1180,6 +1188,8 @@
         rpcbind
         ..
         sa
+        ..
+        syslogd
         ..
     ..
 ..

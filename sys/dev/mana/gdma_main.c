@@ -27,7 +27,7 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-#include <sys/cdefs.h>
+
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/bus.h>
@@ -471,7 +471,7 @@ void
 mana_gd_wq_ring_doorbell(struct gdma_context *gc, struct gdma_queue *queue)
 {
 	mana_gd_ring_doorbell(gc, queue->gdma_dev->doorbell, queue->type,
-	    queue->id, queue->head * GDMA_WQE_BU_SIZE, 1);
+	    queue->id, queue->head * GDMA_WQE_BU_SIZE, 0);
 }
 
 void

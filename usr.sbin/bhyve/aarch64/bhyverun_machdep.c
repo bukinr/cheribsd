@@ -47,6 +47,8 @@
 #include "fdt.h"
 #include "mem.h"
 #include "pci_emul.h"
+#include "pci_irq.h"
+#include "rtc_pl031.h"
 #include "uart_emul.h"
 
 /* Start of mem + 1M */
@@ -57,6 +59,9 @@
 #define	UART_MMIO_BASE	0x10000
 #define	UART_MMIO_SIZE	0x1000
 #define	UART_INTR	32
+#define	RTC_MMIO_BASE	0x11000
+#define	RTC_MMIO_SIZE	0x1000
+#define	RTC_INTR	33
 
 #define	GIC_DIST_BASE	0x2f000000
 #define	GIC_DIST_SIZE	0x10000
@@ -65,7 +70,10 @@
 /* 2 * 64K * 120 vCPUs */
 #define	GIC_REDIST_MAX	0xf00000
 
-#define	PCIE_INTR	33
+#define	PCIE_INTA	34
+#define	PCIE_INTB	35
+#define	PCIE_INTC	36
+#define	PCIE_INTD	37
 
 void
 bhyve_init_config(void)
@@ -289,6 +297,60 @@ init_mmio_uart(struct vmctx *ctx)
 	return (true);
 }
 
+static void
+mmio_rtc_intr_assert(void *arg)
+{
+	struct vmctx *ctx = arg;
+
+	vm_assert_irq(ctx, RTC_INTR);
+}
+
+static void
+mmio_rtc_intr_deassert(void *arg)
+{
+	struct vmctx *ctx = arg;
+
+	vm_deassert_irq(ctx, RTC_INTR);
+}
+
+static int
+mmio_rtc_mem_handler(struct vcpu *vcpu __unused, int dir,
+    uint64_t addr, int size __unused, uint64_t *val, void *arg1, long arg2)
+{
+	struct rtc_pl031_softc *sc = arg1;
+	long reg;
+
+	reg = addr - arg2;
+	if (dir == MEM_F_WRITE)
+		rtc_pl031_write(sc, reg, *val);
+	else
+		*val = rtc_pl031_read(sc, reg);
+
+	return (0);
+}
+
+static void
+init_mmio_rtc(struct vmctx *ctx)
+{
+	struct rtc_pl031_softc *sc;
+	struct mem_range mr;
+	int error;
+
+	sc = rtc_pl031_init(mmio_rtc_intr_assert, mmio_rtc_intr_deassert,
+	    ctx);
+
+	bzero(&mr, sizeof(struct mem_range));
+	mr.name = "rtc";
+	mr.base = RTC_MMIO_BASE;
+	mr.size = RTC_MMIO_SIZE;
+	mr.flags = MEM_F_RW;
+	mr.handler = mmio_rtc_mem_handler;
+	mr.arg1 = sc;
+	mr.arg2 = mr.base;
+	error = register_mem(&mr);
+	assert(error == 0);
+}
+
 static vm_paddr_t
 fdt_gpa(struct vmctx *ctx)
 {
@@ -301,6 +363,7 @@ bhyve_init_platform(struct vmctx *ctx, struct vcpu *bsp)
 	const char *bootrom;
 	uint64_t elr, redist_size;
 	int error;
+	int pcie_intrs[4] = {PCIE_INTA, PCIE_INTB, PCIE_INTC, PCIE_INTD};
 
 	bootrom = get_config_value("bootrom");
 	if (bootrom == NULL) {
@@ -335,8 +398,11 @@ bhyve_init_platform(struct vmctx *ctx, struct vcpu *bsp)
 
 	if (init_mmio_uart(ctx))
 		fdt_add_uart(UART_MMIO_BASE, UART_MMIO_SIZE, UART_INTR);
+	init_mmio_rtc(ctx);
+	fdt_add_rtc(RTC_MMIO_BASE, RTC_MMIO_SIZE, RTC_INTR);
 	fdt_add_timer();
-	fdt_add_pcie(PCIE_INTR);
+	pci_irq_init(pcie_intrs);
+	fdt_add_pcie(pcie_intrs);
 
 	return (0);
 }

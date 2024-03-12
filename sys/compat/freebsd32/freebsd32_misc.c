@@ -83,6 +83,7 @@
 #include <sys/sysproto.h>
 #include <sys/systm.h>
 #include <sys/thr.h>
+#include <sys/timerfd.h>
 #include <sys/timex.h>
 #include <sys/unistd.h>
 #include <sys/ucontext.h>
@@ -121,7 +122,20 @@
 #include <compat/freebsd32/freebsd32_signal.h>
 #include <compat/freebsd32/freebsd32_proto.h>
 
-FEATURE(compat_freebsd_32bit, "Compatible with 32-bit FreeBSD");
+int compat_freebsd_32bit = 1;
+
+static void
+register_compat32_feature(void *arg)
+{
+	if (!compat_freebsd_32bit)
+		return;
+
+	FEATURE_ADD("compat_freebsd32", "Compatible with 32-bit FreeBSD");
+	FEATURE_ADD("compat_freebsd_32bit",
+	    "Compatible with 32-bit FreeBSD (legacy feature name)");
+}
+SYSINIT(freebsd32, SI_SUB_EXEC, SI_ORDER_ANY, register_compat32_feature,
+    NULL);
 
 struct ptrace_io_desc32 {
 	int		piod_op;
@@ -1114,7 +1128,6 @@ freebsd32_copyinuio(const struct iovec * __capability cb_arg, u_int iovcnt,
 	struct iovec32 iov32;
 	struct iovec *iov;
 	struct uio *uio;
-	u_int iovlen;
 	int error, i;
 	/*
 	 * The first argument is not actually a struct iovec *, but C's type
@@ -1126,25 +1139,23 @@ freebsd32_copyinuio(const struct iovec * __capability cb_arg, u_int iovcnt,
 	*uiop = NULL;
 	if (iovcnt > UIO_MAXIOV)
 		return (EINVAL);
-	iovlen = iovcnt * sizeof(struct iovec);
-	uio = malloc(iovlen + sizeof *uio, M_IOV, M_WAITOK);
-	iov = (struct iovec *)(uio + 1);
+	uio = allocuio(iovcnt);
+	iov = uio->uio_iov;
 	for (i = 0; i < iovcnt; i++) {
 		error = copyin(&iovp[i], &iov32, sizeof(struct iovec32));
 		if (error) {
-			free(uio, M_IOV);
+			freeuio(uio);
 			return (error);
 		}
 		IOVEC_INIT(&iov[i], PTRIN(iov32.iov_base), iov32.iov_len);
 	}
-	uio->uio_iov = iov;
 	uio->uio_iovcnt = iovcnt;
 	uio->uio_segflg = UIO_USERSPACE;
 	uio->uio_offset = -1;
 	uio->uio_resid = 0;
 	for (i = 0; i < iovcnt; i++) {
 		if (iov->iov_len > INT_MAX - uio->uio_resid) {
-			free(uio, M_IOV);
+			freeuio(uio);
 			return (EINVAL);
 		}
 		uio->uio_resid += iov->iov_len;
@@ -2993,6 +3004,60 @@ freebsd32_ktimer_gettime(struct thread *td,
 	if (error == 0) {
 		ITS_CP(val, val32);
 		error = copyout(&val32, uap->value, sizeof(val32));
+	}
+	return (error);
+}
+
+int
+freebsd32_timerfd_gettime(struct thread *td,
+    struct freebsd32_timerfd_gettime_args *uap)
+{
+	struct itimerspec curr_value;
+	struct itimerspec32 curr_value32;
+	int error;
+
+	error = kern_timerfd_gettime(td, uap->fd, &curr_value);
+	if (error == 0) {
+		CP(curr_value, curr_value32, it_value.tv_sec);
+		CP(curr_value, curr_value32, it_value.tv_nsec);
+		CP(curr_value, curr_value32, it_interval.tv_sec);
+		CP(curr_value, curr_value32, it_interval.tv_nsec);
+		error = copyout(&curr_value32, uap->curr_value,
+		    sizeof(curr_value32));
+	}
+
+	return (error);
+}
+
+int
+freebsd32_timerfd_settime(struct thread *td,
+    struct freebsd32_timerfd_settime_args *uap)
+{
+	struct itimerspec new_value, old_value;
+	struct itimerspec32 new_value32, old_value32;
+	int error;
+
+	error = copyin(uap->new_value, &new_value32, sizeof(new_value32));
+	if (error != 0)
+		return (error);
+	CP(new_value32, new_value, it_value.tv_sec);
+	CP(new_value32, new_value, it_value.tv_nsec);
+	CP(new_value32, new_value, it_interval.tv_sec);
+	CP(new_value32, new_value, it_interval.tv_nsec);
+	if (uap->old_value == NULL) {
+		error = kern_timerfd_settime(td, uap->fd, uap->flags,
+		    &new_value, NULL);
+	} else {
+		error = kern_timerfd_settime(td, uap->fd, uap->flags,
+		    &new_value, &old_value);
+		if (error == 0) {
+			CP(old_value, old_value32, it_value.tv_sec);
+			CP(old_value, old_value32, it_value.tv_nsec);
+			CP(old_value, old_value32, it_interval.tv_sec);
+			CP(old_value, old_value32, it_interval.tv_nsec);
+			error = copyout(&old_value32, uap->old_value,
+			    sizeof(old_value32));
+		}
 	}
 	return (error);
 }

@@ -26,7 +26,6 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <sys/cdefs.h>
 #include <sys/param.h>
 #include <sys/socket.h>
 #include <sys/kernel.h>
@@ -224,6 +223,7 @@ static uint8_t get_phy_type(struct bnxt_softc *softc);
 static uint64_t bnxt_get_baudrate(struct bnxt_link_info *link);
 static void bnxt_get_wol_settings(struct bnxt_softc *softc);
 static int bnxt_wol_config(if_ctx_t ctx);
+static bool bnxt_if_needs_restart(if_ctx_t, enum iflib_restart_event);
 
 /*
  * Device Interface Declaration
@@ -287,6 +287,8 @@ static device_method_t bnxt_iflib_methods[] = {
 	DEVMETHOD(ifdi_suspend, bnxt_suspend),
 	DEVMETHOD(ifdi_shutdown, bnxt_shutdown),
 	DEVMETHOD(ifdi_resume, bnxt_resume),
+
+	DEVMETHOD(ifdi_needs_restart, bnxt_if_needs_restart),
 
 	DEVMETHOD_END
 };
@@ -2495,6 +2497,16 @@ bnxt_wol_config(if_ctx_t ctx)
 	}
 
 	return 0;
+}
+
+static bool
+bnxt_if_needs_restart(if_ctx_t ctx __unused, enum iflib_restart_event event)
+{
+	switch (event) {
+	case IFLIB_RESTART_VLAN_CONFIG:
+	default:
+		return (false);
+	}
 }
 
 static int

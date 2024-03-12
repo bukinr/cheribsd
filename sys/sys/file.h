@@ -27,8 +27,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	@(#)file.h	8.3 (Berkeley) 1/9/95
  */
 
 #ifndef _SYS_FILE_H_
@@ -69,7 +67,7 @@ struct nameidata;
 #define	DTYPE_DEV	11	/* Device specific fd type */
 #define	DTYPE_PROCDESC	12	/* process descriptor */
 #define	DTYPE_EVENTFD	13	/* eventfd */
-#define	DTYPE_LINUXTFD	14	/* emulation timerfd type */
+#define	DTYPE_TIMERFD	14	/* timerfd */
 
 #ifdef _KERNEL
 

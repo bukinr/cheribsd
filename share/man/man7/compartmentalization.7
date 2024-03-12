@@ -107,10 +107,11 @@ Environment variables recognized by this variant need to be prefixed with
 LD_64CB_C18N_.
 .Pp
 .Sy NOTE:
-The current implementation is not fully optmized for performance, nor is it
-tested as extensively as the normal variant and may thus contain subtle bugs.
-Compartment transition tracing is unreliable under the benchmark ABI.
-Please report any bug to help improve the implementation.
+Because the purecap variant uses some of Morello's architectural features that
+are unavailable under the benchmark ABI, the benchmark ABI variant is not a mere
+translation of the purecap variant but has a slightly different implementation.
+The best effort has been made to ensure that such a divergence does not bias
+performance estimates under almost all circumstances.
 .Sh LIMITATIONS
 This work is of an experimental nature.
 The author has tested it on applications such as
@@ -127,17 +128,6 @@ Below is a list of known limitations and problems.
 For more up-to-date information, visit
 .Lk https://github.com/CTSRD-CHERI/cheripedia/wiki/Library-based-Compartmentalisation .
 .Bl -bullet
-.It
-Calling
-.Xr longjmp 3
-in a signal handler does not work if the
-.Lb libthr
-is not linked to the application.
-This happens in
-.Xr sh 1 ,
-for example.
-A workaround is to PRELOAD
-.Lb libthr .
 .It
 Stack unwinding is not expected to work.
 This includes C++ exceptions, stack tracing in debuggers, and usage of

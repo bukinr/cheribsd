@@ -20,7 +20,6 @@
  * This file contains support for the POSIX 1003.1B AIO/LIO facility.
  */
 
-#include <sys/cdefs.h>
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/malloc.h>
@@ -1467,7 +1466,7 @@ aiocb_free_kaiocb(struct kaiocb *kjob)
 		return;
 	if (refcount_release(&kjob->refcount)) {
 		if (kjob->uiop != &kjob->uio)
-			free(kjob->uiop, M_IOV);
+			freeuio(kjob->uiop);
 		uma_zfree(aiocb_zone, kjob);
 	}
 }
@@ -1788,7 +1787,7 @@ err3:
 	knlist_delete(&job->klist, curthread, 0);
 err2:
 	if (job->uiop != &job->uio)
-		free(job->uiop, M_IOV);
+		freeuio(job->uiop);
 	uma_zfree(aiocb_zone, job);
 err1:
 	ops->store_error(ujob, error);

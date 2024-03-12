@@ -30,7 +30,6 @@
 #ifndef	_LINUXKPI_LINUX_KERNEL_H_
 #define	_LINUXKPI_LINUX_KERNEL_H_
 
-#include <sys/cdefs.h>
 #include <sys/types.h>
 #include <sys/systm.h>
 #include <sys/param.h>
@@ -621,12 +620,6 @@ mult_frac(uintmax_t x, uintmax_t multiplier, uintmax_t divisor)
 	uintmax_t r = (x % divisor);
 
 	return ((q * multiplier) + ((r * multiplier) / divisor));
-}
-
-static inline int64_t
-abs64(int64_t x)
-{
-	return (x < 0 ? -x : x);
 }
 
 typedef struct linux_ratelimit {
