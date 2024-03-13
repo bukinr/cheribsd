@@ -47,6 +47,7 @@
 
 #include <sys/cdefs.h>
 #include "opt_hwpmc_hooks.h"
+#include "opt_hwt_hooks.h"
 #include "opt_ktrace.h"
 #include "opt_vm.h"
 
