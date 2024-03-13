@@ -1975,7 +1975,8 @@ reinstallkernel reinstallkernel.debug: _installcheck_kernel .PHONY
 	@echo "--------------------------------------------------------------"
 	${_+_}cd ${KRNLOBJDIR}/${INSTALLKERNEL}; \
 	    ${CROSSENV} PATH=${TMPPATH:Q} \
-	    ${MAKE} ${IMAKE_INSTALL} KERNEL=${INSTKERNNAME} ${.TARGET:S/kernel//}
+	    ${MAKE} ${IMAKE_INSTALL} KERNEL=${INSTKERNNAME} METALOG=${METALOG} \
+	    ${.TARGET:S/kernel//}
 	@echo "--------------------------------------------------------------"
 	@echo ">>> Installing kernel ${INSTALLKERNEL} completed on $$(LC_ALL=C date)"
 	@echo "--------------------------------------------------------------"
@@ -1987,7 +1988,8 @@ reinstallkernel reinstallkernel.debug: _installcheck_kernel .PHONY
 	@echo "--------------------------------------------------------------"
 	${_+_}cd ${KRNLOBJDIR}/${_kernel}; \
 	    ${CROSSENV} PATH=${TMPPATH:Q} \
-	    ${MAKE} ${IMAKE_INSTALL} KERNEL=${INSTKERNNAME}.${_kernel} ${.TARGET:S/kernel//}
+	    ${MAKE} ${IMAKE_INSTALL} KERNEL=${INSTKERNNAME}.${_kernel} METALOG=${METALOG} \
+	    ${.TARGET:S/kernel//}
 	@echo "--------------------------------------------------------------"
 	@echo ">>> Installing kernel ${_kernel} completed on $$(LC_ALL=C date)"
 	@echo "--------------------------------------------------------------"
@@ -2007,7 +2009,8 @@ distributekernel distributekernel.debug: .PHONY
 	${_+_}cd ${KRNLOBJDIR}/${INSTALLKERNEL}; \
 	    ${IMAKEENV} ${IMAKE_INSTALL:S/METALOG/kernel.premeta/} \
 	    ${IMAKE_MTREE} PATH=${TMPPATH:Q} ${MAKE} KERNEL=${INSTKERNNAME} \
-	    DESTDIR=${INSTALL_DDIR}/kernel \
+	    DISTBASE=/kernel DESTDIR=${INSTALL_DDIR}/kernel \
+	    METALOG=${METALOG:S/METALOG/kernel.premeta/} \
 	    ${.TARGET:S/distributekernel/install/}
 .if defined(NO_ROOT)
 	@sed -e 's|^./kernel|.|' ${DESTDIR}/${DISTDIR}/kernel.premeta > \
@@ -2023,7 +2026,8 @@ distributekernel distributekernel.debug: .PHONY
 	    ${IMAKEENV} ${IMAKE_INSTALL:S/METALOG/kernel.${_kernel}.premeta/} \
 	    ${IMAKE_MTREE} PATH=${TMPPATH:Q} ${MAKE} \
 	    KERNEL=${INSTKERNNAME}.${_kernel} \
-	    DESTDIR=${INSTALL_DDIR}/kernel.${_kernel} \
+	    DISTBASE=/kernel.${_kernel} DESTDIR=${INSTALL_DDIR}/kernel.${_kernel} \
+	    METALOG=${METALOG:S/METALOG/kernel.${_kernel}.premeta/} \
 	    ${.TARGET:S/distributekernel/install/}
 .if defined(NO_ROOT)
 	@sed -e "s|^./kernel.${_kernel}|.|" \
@@ -2225,10 +2229,12 @@ create-source-packages: _pkgbootstrap .PHONY
 .if !empty(GIT_CMD) && exists(${GIT_CMD}) && exists(${SRCDIR}/.git)
 	@cd ${SRCDIR}; \
 		( echo "@override_prefix /usr/src" ;  \
-		${GIT_CMD} ls-files ":!:sys/" ) > ${SSTAGEDIR}/src.plist
+		${GIT_CMD} ls-files --recurse-submodules ":!:sys/" ) \
+		> ${SSTAGEDIR}/src.plist
 	@cd ${SRCDIR}; \
 		( echo "@override_prefix /usr/src" ; \
-		${GIT_CMD} ls-files "sys/" ) > ${SSTAGEDIR}/src-sys.plist
+		${GIT_CMD} ls-files --recurse-submodules "sys/" ) \
+		> ${SSTAGEDIR}/src-sys.plist
 	sed -e "s/%VERSION%/${PKG_VERSION}/" \
 		-e "s/%DESC%/FreeBSD sources/" \
 		-e "s/ %VCS_REVISION%/${VCS_REVISION}/" \
@@ -2542,7 +2548,11 @@ _bootstrap_tools_links+=m4 lex
 _elftoolchain_libs= lib/libelf lib/libdwarf lib/libzstd
 ${_bt}-lib/libelf: ${_bt_m4_depend}
 ${_bt}-lib/libdwarf: ${_bt_m4_depend}
+_bt_libelf_depend=${_bt}-lib/libelf
 .endif
+
+_kldxref=	usr.sbin/kldxref
+${_bt}-usr.sbin/kldxref: ${_bt_libelf_depend}
 
 # flua is required to regenerate syscall files.  It first appeared during the
 # 13.0-CURRENT cycle, thus needs to be built on -older releases and stable
@@ -2805,6 +2815,7 @@ bootstrap-tools: ${_bt}-links .PHONY
     ${_cat} \
     ${_kbdcontrol} \
     ${_elftoolchain_libs} \
+    ${_kldxref} \
     lib/libopenbsd \
     usr.bin/mandoc \
     usr.bin/rpcgen \
