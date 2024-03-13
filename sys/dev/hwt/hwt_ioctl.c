@@ -160,7 +160,8 @@ hwt_ioctl_alloc_mode_thread(struct thread *td, struct hwt_owner *ho,
 	ctx->hwt_td = td;
 	ctx->kqueue_fd = halloc->kqueue_fd;
 
-	error = copyout(&ctx->ident, halloc->ident, sizeof(int));
+	error = copyout(&ctx->ident, (void * __capability)halloc->ident,
+	    sizeof(int));
 	if (error) {
 		hwt_ctx_free(ctx);
 		return (error);
@@ -276,7 +277,7 @@ hwt_ioctl_alloc_mode_cpu(struct thread *td, struct hwt_owner *ho,
 	cpu_count = 0;
 
 	cpusetsize = min(halloc->cpusetsize, sizeof(cpuset_t));
-	error = copyin(halloc->cpu_map, &cpu_map, cpusetsize);
+	error = copyin((void * __capability)halloc->cpu_map, &cpu_map, cpusetsize);
 	if (error)
 		return (error);
 
@@ -311,7 +312,7 @@ hwt_ioctl_alloc_mode_cpu(struct thread *td, struct hwt_owner *ho,
 	ctx->hwt_td = td;
 	ctx->kqueue_fd = halloc->kqueue_fd;
 
-	error = copyout(&ctx->ident, halloc->ident, sizeof(int));
+	error = copyout(&ctx->ident, (void * __capability)halloc->ident, sizeof(int));
 	if (error) {
 		hwt_ctx_free(ctx);
 		return (error);
@@ -373,8 +374,8 @@ hwt_ioctl_alloc(struct thread *td, struct hwt_alloc *halloc)
 	if (halloc->backend_name == NULL)
 		return (EINVAL);
 
-	error = copyinstr(halloc->backend_name, (void *)backend_name,
-	    HWT_BACKEND_MAXNAMELEN, NULL);
+	error = copyinstr((const void * __capability)halloc->backend_name,
+	    (void *)backend_name, HWT_BACKEND_MAXNAMELEN, NULL);
 	if (error)
 		return (error);
 

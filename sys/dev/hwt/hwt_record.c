@@ -170,7 +170,8 @@ hwt_record_send(struct hwt_context *ctx, struct hwt_record_get *record_get)
 
 	nitems_req = 0;
 
-	error = copyin(record_get->nentries, &nitems_req, sizeof(int));
+	error = copyin((void * __capability)record_get->nentries, &nitems_req,
+	    sizeof(int));
 	if (error)
 		return (error);
 
@@ -182,11 +183,13 @@ hwt_record_send(struct hwt_context *ctx, struct hwt_record_get *record_get)
 
 	i = hwt_record_grab(ctx, user_entry, nitems_req);
 	if (i > 0)
-		error = copyout(user_entry, record_get->records,
+		error = copyout(user_entry,
+		    (void * __capability)record_get->records,
 		    sizeof(struct hwt_record_user_entry) * i);
 
 	if (error == 0)
-		error = copyout(&i, record_get->nentries, sizeof(int));
+		error = copyout(&i, (void * __capability)record_get->nentries,
+		    sizeof(int));
 
 	free(user_entry, M_HWT_RECORD);
 

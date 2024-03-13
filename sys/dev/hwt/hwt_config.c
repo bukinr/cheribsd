@@ -75,7 +75,7 @@ hwt_config_set(struct thread *td, struct hwt_context *ctx,
 
 	config = malloc(config_size, M_HWT_CONFIG, M_WAITOK | M_ZERO);
 
-	error = copyin(sconf->config, config, config_size);
+	error = copyin((void * __capability)sconf->config, config, config_size);
 	if (error) {
 		free(config, M_HWT_CONFIG);
 		return (error);

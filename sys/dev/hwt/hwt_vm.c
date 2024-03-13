@@ -317,10 +317,12 @@ hwt_vm_ioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flags,
 		if (error)
 			return (error);
 
-		error = copyout(&curpage, ptr_get->curpage, sizeof(int));
+		error = copyout(&curpage, (void * __capability)ptr_get->curpage,
+		    sizeof(int));
 		if (error)
 			return (error);
-		error = copyout(&curpage_offset, ptr_get->curpage_offset,
+		error = copyout(&curpage_offset,
+		    (void * __capability)ptr_get->curpage_offset,
 		    sizeof(vm_offset_t));
 		if (error)
 			return (error);

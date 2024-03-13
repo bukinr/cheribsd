@@ -53,14 +53,14 @@
 #define	HWT_MODE_CPU		2
 
 struct hwt_alloc {
-	size_t		bufsize;
-	int		mode;
-	pid_t		pid;		/* thread mode */
-	cpuset_t	*cpu_map;	/* cpu mode only */
-	size_t		cpusetsize;
-	const char	*backend_name;
-	int		*ident;
-	int		kqueue_fd;
+	size_t				bufsize;
+	int				mode;
+	pid_t				pid;		/* thread mode */
+	cpuset_t	* __capability	cpu_map;	/* cpu mode only */
+	size_t				cpusetsize;
+	const char	* __capability	backend_name;
+	int		* __capability	ident;
+	int				kqueue_fd;
 } __aligned(16);
 
 struct hwt_start {
@@ -83,23 +83,23 @@ struct hwt_record_user_entry {
 } __aligned(16);
 
 struct hwt_record_get {
-	struct hwt_record_user_entry	*records;
-	int				*nentries;
+	struct hwt_record_user_entry	* __capability records;
+	int				* __capability nentries;
 } __aligned(16);
 
 struct hwt_bufptr_get {
-	int		*curpage;
-	vm_offset_t	*curpage_offset;
+	int		* __capability curpage;
+	vm_offset_t	* __capability curpage_offset;
 } __aligned(16);
 
 struct hwt_set_config {
 	/* Configuration of ctx. */
-	int			pause_on_mmap;
+	int					pause_on_mmap;
 
 	/* The following passed to backend as is. */
-	void			*config;
-	size_t			config_size;
-	int			config_version;
+	void			* __capability	config;
+	size_t					config_size;
+	int					config_version;
 } __aligned(16);
 
 #endif /* !_SYS_HWT_H_ */
