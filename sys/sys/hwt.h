@@ -78,7 +78,7 @@ struct hwt_wakeup {
 struct hwt_record_user_entry {
 	enum hwt_record_type	record_type;
 	char			fullpath[MAXPATHLEN];
-	uintptr_t		addr;
+	uintcap_t		addr;
 	int			thread_id;
 } __aligned(16);
 
