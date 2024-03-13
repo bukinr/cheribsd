@@ -67,7 +67,6 @@ hwt_record(struct thread *td, struct hwt_record_entry *ent)
 	p = td->td_proc;
 
 	KASSERT(ent != NULL, ("ent is NULL"));
-
 	if (ent->fullpath == NULL)
 		return;
 
