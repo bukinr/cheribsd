@@ -30,8 +30,9 @@
 #include <sys/mman.h>
 #include <sys/sysctl.h>
 
-#include <stdlib.h>
+#include <signal.h>
 #include <stdatomic.h>
+#include <stdlib.h>
 
 #include "debug.h"
 #include "rtld.h"
@@ -282,17 +283,34 @@ init_compart_stack(void **stk, compart_id_t cid)
 		*--((uintptr_t **)stk)[-1] = cid;
 }
 
-#ifdef __ARM_MORELLO_PURECAP_BENCHMARK_ABI
 uintptr_t c18n_init_rtld_stack(uintptr_t, void **);
 
 uintptr_t
 c18n_init_rtld_stack(uintptr_t ret, void **csp)
 {
+	/*
+	 * This function does very different things under the two ABIs.
+	 */
+#ifdef __ARM_MORELLO_PURECAP_BENCHMARK_ABI
+	/*
+	 * Under the benchmark ABI, it initialises RTLD's stack as a regular
+	 * compartment's stack.
+	 */
 	init_compart_stack(csp, C18N_RTLD_COMPART_ID);
+#else
+	/*
+	 * Under the purecap ABI, it repurposes the trusted stack into a dummy
+	 * stack to be filled in the Restricted stack register when running
+	 * Executive mode code. The reduction of bounds is merely defensive. It
+	 * should in theory be unnecessary.
+	 */
+	csp[-1] = cheri_setboundsexact(&csp[-1], sizeof(csp[-1]));
+#endif
 
 	return (ret);
 }
 
+#ifdef __ARM_MORELLO_PURECAP_BENCHMARK_ABI
 /*
  * Save the initial stack (either at program launch or at thread start) in the
  * stack table.
@@ -502,10 +520,10 @@ struct jmp_args
 _rtld_setjmp_impl(uintptr_t ret, void **buf, struct trusted_frame *csp)
 {
 	/*
-	 * Before setjmp is called, the top of the Executive stack contains:
+	 * Before setjmp is called, the top of the trusted stack contains:
 	 * 	0.	Link to previous frame
-	 * setjmp does not push to the Executive stack. When _rtld_setjmp is
-	 * called, the following are pushed to the Executive stack:
+	 * setjmp does not push to the trusted stack. When _rtld_setjmp is
+	 * called, the following are pushed to the trusted stack:
 	 * 	1.	Caller's data
 	 * 	2.	Link to 0
 	 * We store a sealed capability to the caller's frame in the jump
@@ -525,15 +543,15 @@ _rtld_longjmp_impl(uintptr_t ret, void **buf, struct trusted_frame *csp,
     void **rcsp)
 {
 	/*
-	 * Before longjmp is called, the top of the Executive stack contains:
+	 * Before longjmp is called, the top of the trusted stack contains:
 	 * 	0.	Link to previous frame
-	 * longjmp does not push to the Executive stack. When _rtld_longjmp is
-	 * called, the following are pushed to the Executive stack:
+	 * longjmp does not push to the trusted stack. When _rtld_longjmp is
+	 * called, the following are pushed to the trusted stack:
 	 * 	1.	Caller's data
 	 * 	2.	Link to 0
-	 * _rtld_longjmp traverses down the Executive stack from 0 and unwinds
-	 * the Restricted stack of each intermediate compartment until reaching
-	 * the target frame.
+	 * _rtld_longjmp traverses down the trusted stack from 0 and unwinds
+	 * the stack of each intermediate compartment until reaching the target
+	 * frame.
 	 */
 
 	struct trusted_frame *target, *cur = csp;
@@ -761,34 +779,39 @@ tramp_hook_impl(void *rcsp, int event, void *target, const Obj_Entry *obj,
 	const char *sym;
 	const char *callee;
 
+	uintptr_t *stack;
 	compart_id_t caller_id;
 	const char *caller;
 
 	struct utrace_rtld ut;
 	static const char rtld_utrace_sig[RTLD_UTRACE_SIG_SZ] = RTLD_UTRACE_SIG;
 
-	sym_num = def == NULL ? 0 : def->st_name;
-	sym = def == NULL ? "<unknown>" : strtab_value(obj, def->st_name);
-	callee = comparts.data[obj->compart_id]->name;
+	if (ld_compartment_utrace != NULL) {
+		sym_num = def == NULL ? 0 : def - obj->symtab;
+		sym = def == NULL ? "<unknown>" :
+		    strtab_value(obj, def->st_name);
+		callee = comparts.data[obj->compart_id]->name;
 
 #ifdef __ARM_MORELLO_PURECAP_BENCHMARK_ABI
-	caller_id =
-	    ((uintptr_t *)cheri_setoffset(rcsp, cheri_getlen(rcsp)))[-2];
-	(void)link;
+		(void)link;
 #else
-	if (cheri_gettag(link) &&
-	    (cheri_getperm(link) & CHERI_PERM_EXECUTIVE) == 0)
-		caller_id = ((uintptr_t *)
-		    cheri_setoffset(rcsp, cheri_getlen(rcsp)))[-2];
-	else
-		caller_id = C18N_RTLD_COMPART_ID;
+		if (cheri_gettag(link) &&
+		    (cheri_getperm(link) & CHERI_PERM_EXECUTIVE) == 0)
 #endif
-	if (caller_id < C18N_RTLD_COMPART_ID)
-		caller = "<unknown>";
-	else
-		caller = comparts.data[caller_id]->name;
+		{
+			stack = cheri_setoffset(rcsp, cheri_getlen(rcsp));
+		        caller_id = stack[-2];
+		}
+#ifndef __ARM_MORELLO_PURECAP_BENCHMARK_ABI
+		else
+			caller_id = C18N_RTLD_COMPART_ID;
+#endif
 
-	if (ld_compartment_utrace != NULL) {
+		if (caller_id < C18N_RTLD_COMPART_ID)
+			caller = "<unknown>";
+		else
+			caller = comparts.data[caller_id]->name;
+
 		memcpy(ut.sig, rtld_utrace_sig, sizeof(ut.sig));
 		ut.event = event;
 		ut.handle = target;
@@ -1172,6 +1195,8 @@ c18n_return_address(void)
  */
 static void (*thr_thread_start)(struct pthread *);
 
+void _rtld_thread_start_init(void (*)(struct pthread *));
+
 void
 _rtld_thread_start_init(void (*p)(struct pthread *))
 {
@@ -1293,36 +1318,40 @@ struct dispatch_signal_ret dispatch_signal_begin(__siginfohandler_t,
     siginfo_t *, void *);
 
 struct dispatch_signal_ret
-dispatch_signal_begin(__siginfohandler_t sigfunc, siginfo_t *info,
-    void *_ucp)
+dispatch_signal_begin(__siginfohandler_t sigfunc, siginfo_t *info, void *_ucp)
 {
 	compart_id_t cid = tramp_reflect(sigfunc)->defobj->compart_id;
-	struct stk_table *table = stk_table_get();
-	struct stk_table_stack stack;
+	struct stk_table_stack *entry;
 	ucontext_t *ucp = _ucp;
-	char **stk_bot;
-	void *stk_top;
+	struct sigframe {
+		siginfo_t info;
+		ucontext_t context;
+	} *ntop, *otop, **bot;
 
-	stack = table->stacks[compart_id_to_stack_index(cid)];
-
-	if (stack.size == 0)
-		stk_bot = allocate_rstk_impl(compart_id_to_index(cid));
+	entry = &stk_table_get()->stacks[compart_id_to_stack_index(cid)];
+	if (entry->size == 0)
+		bot = allocate_rstk_impl(compart_id_to_index(cid));
 	else
-		stk_bot = stack.bottom;
+		bot = entry->bottom;
 
-	stk_top = stk_bot[-1];
+	otop = bot[-1];
+	ntop = bot[-1] = otop - 1;
 
-	stk_bot[-1] -= sizeof(*ucp);
-	ucp = memcpy(stk_bot[-1], ucp, sizeof(*ucp));
+	assert(__is_aligned(ntop, _Alignof(typeof(*ntop))));
+	*ntop = (struct sigframe) {
+		.info = *info,
+		.context = *ucp
+	};
 
-	stk_bot[-1] -= sizeof(*info);
-	info = memcpy(stk_bot[-1], info, sizeof(*info));
-
-	ucp->uc_mcontext.mc_capregs.cap_sp = (uintptr_t)stk_top;
+	/*
+	 * Provide the original top of the target compartment's stack in the
+	 * copy of the context.
+	 */
+	ntop->context.uc_mcontext.mc_capregs.cap_sp = (uintptr_t)otop;
 
 	return (struct dispatch_signal_ret) {
-		.info = info,
-		.ucp = ucp
+		.info = &ntop->info,
+		.ucp = &ntop->context
 	};
 }
 
@@ -1331,20 +1360,26 @@ void dispatch_signal_end(ucontext_t *, ucontext_t *);
 void
 dispatch_signal_end(ucontext_t *new, ucontext_t *old __unused)
 {
-	void *top = (void **)new->uc_mcontext.mc_capregs.cap_sp;
-	void **bot = cheri_setoffset(top, cheri_getlen(top));
+	void *top, **bot;
 
-	memset(new, 0, sizeof(*new));
+	top = (void *)new->uc_mcontext.mc_capregs.cap_sp;
+	bot = cheri_setoffset(top, cheri_getlen(top));
 
+	/*
+	 * Restore the top of the target compartment's stack to the value in the
+	 * context.
+	 */
 	bot[-1] = top;
 }
 
-extern void (*signal_dispatcher)(int, siginfo_t *, void *);
+extern __siginfohandler_t *signal_dispatcher;
 
-void (*signal_dispatcher)(int, siginfo_t *, void *) = _rtld_dispatch_signal;
+__siginfohandler_t *signal_dispatcher = _rtld_dispatch_signal;
+
+void _rtld_sighandler_init(__siginfohandler_t *);
 
 void
-_rtld_sighandler_init(void (*p)(int, siginfo_t *, void *))
+_rtld_sighandler_init(__siginfohandler_t *p)
 {
 	assert(signal_dispatcher == _rtld_dispatch_signal &&
 	    (cheri_getperm(p) & CHERI_PERM_EXECUTIVE) == 0);
@@ -1407,6 +1442,10 @@ _rtld_sigaction_begin(int sig, struct sigaction *act)
 		    "a signal handler");
 
 	act->sa_flags |= SA_SIGINFO;
+	/*
+	 * XXX: Ignore sigaltstack for now.
+	 */
+	act->sa_flags &= ~SA_ONSTACK;
 
 	return (context);
 }
