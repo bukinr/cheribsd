@@ -42,13 +42,15 @@
  * Trampolines
  */
 size_t
-tramp_compile(struct tramp_header **entry, const struct tramp_data *data)
+tramp_compile(char **entry, const struct tramp_data *data)
 {
 #define IMPORT(template)				\
 	extern const uint32_t tramp_##template[];	\
 	extern const size_t size_tramp_##template
 
 	IMPORT(save_caller);
+	IMPORT(update_fp);
+	IMPORT(update_fp_untagged);
 	IMPORT(call_hook);
 	IMPORT(switch_stack);
 	IMPORT(invoke_exe);
@@ -141,6 +143,11 @@ tramp_compile(struct tramp_header **entry, const struct tramp_data *data)
 	PATCH_LDR_IMM(save_caller, target, hook ? 1 : 0);
 	if (data->sig.valid)
 		PATCH_ADD(save_caller, ret_args, data->sig.ret_args);
+
+	if (executive || ld_compartment_unwind != NULL)
+		COPY(update_fp);
+	else
+		COPY(update_fp_untagged);
 
 	if (hook) {
 		COPY(call_hook);

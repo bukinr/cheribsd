@@ -59,6 +59,9 @@ const char *ld_compartment_overhead;
 /* Read the .c18n.signature ELF section */
 const char *ld_compartment_sig;
 
+/* Expose tagged frame pointers to trusted frames */
+const char *ld_compartment_unwind;
+
 /*
  * Policies
  */
@@ -240,6 +243,16 @@ tramp_should_include(const Obj_Entry *reqobj, const struct tramp_data *data)
 /*
  * Stack switching
  */
+struct stk_bottom {
+	compart_id_t compart_id;
+	/*
+	 * INVARIANT: The bottom of a compartment's stack contains a capability
+	 * to the top of the stack either when the compartment was last entered
+	 * or when it was last exited from, which ever occured later.
+	 */
+	void *top;
+};
+
 void *allocate_rstk(unsigned);
 
 static compart_id_t
@@ -258,35 +271,25 @@ compart_id_to_stack_index(compart_id_t cid)
 	return (cid - offsetof(typeof(dummy), stacks) / sizeof(*dummy.stacks));
 }
 
-static void init_compart_stack(void **, compart_id_t);
+static void init_compart_stack(void *, compart_id_t);
 
 static void
-init_compart_stack(void **stk, compart_id_t cid)
+init_compart_stack(void *base, compart_id_t cid)
 {
-	/*
-	 * INVARIANT: The bottom of a compartment's stack contains a capability
-	 * to the top of the stack either when the compartment was last entered
-	 * or when it was last exited from, which ever occured later.
-	 */
-	stk[-1] = cheri_clearperm(stk - 1, CHERI_PERM_SW_VMEM);
-	if (
-#ifdef __ARM_MORELLO_PURECAP_BENCHMARK_ABI
-	    /*
-	     * Do not check whether tracing is enabled if initialising the RTLD
-	     * stack because the global variable might not have been relocated
-	     * yet. This is only needed under the benchmark ABI, which has the
-	     * concept of an RTLD stack.
-	     */
-	    cid == C18N_RTLD_COMPART_ID ||
-#endif
-	    ld_compartment_utrace != NULL)
-		*--((uintptr_t **)stk)[-1] = cid;
+	struct stk_bottom *stk = base;
+	--stk;
+
+	memset(stk, 0, sizeof(*stk));
+	*stk = (struct stk_bottom) {
+		.compart_id = cid,
+		.top = cheri_clearperm(stk, CHERI_PERM_SW_VMEM)
+	};
 }
 
-uintptr_t c18n_init_rtld_stack(uintptr_t, void **);
+uintptr_t c18n_init_rtld_stack(uintptr_t, void *);
 
 uintptr_t
-c18n_init_rtld_stack(uintptr_t ret, void **csp)
+c18n_init_rtld_stack(uintptr_t ret, void *base)
 {
 	/*
 	 * This function does very different things under the two ABIs.
@@ -296,15 +299,17 @@ c18n_init_rtld_stack(uintptr_t ret, void **csp)
 	 * Under the benchmark ABI, it initialises RTLD's stack as a regular
 	 * compartment's stack.
 	 */
-	init_compart_stack(csp, C18N_RTLD_COMPART_ID);
+	init_compart_stack(base, C18N_RTLD_COMPART_ID);
 #else
+	struct stk_bottom *stk = base;
+	--stk;
 	/*
 	 * Under the purecap ABI, it repurposes the trusted stack into a dummy
 	 * stack to be filled in the Restricted stack register when running
 	 * Executive mode code. The reduction of bounds is merely defensive. It
 	 * should in theory be unnecessary.
 	 */
-	csp[-1] = cheri_setboundsexact(&csp[-1], sizeof(csp[-1]));
+	stk->top = cheri_setboundsexact(&stk->top, sizeof(stk->top));
 #endif
 
 	return (ret);
@@ -496,18 +501,9 @@ allocate_rstk_impl(unsigned index)
 	return (stk);
 }
 
-struct trusted_frame {
-	ptraddr_t next;
-	uint8_t ret_args : 2;
-	ptraddr_t cookie : 62;
-	/*
-	 * INVARIANT: This field contains the top of the caller's stack when the
-	 * caller was last entered.
-	 */
-	void **o_stack;
-	void *ret_addr;
-};
-
+/*
+ * Stack unwinding
+ */
 /*
  * Returning this struct allows us to control the content of unused return value
  * registers.
@@ -536,11 +532,11 @@ _rtld_setjmp_impl(uintptr_t ret, void **buf, struct trusted_frame *csp)
 }
 
 struct jmp_args _rtld_longjmp_impl(uintptr_t, void **, struct trusted_frame *,
-    void **);
+    void *);
 
 struct jmp_args
 _rtld_longjmp_impl(uintptr_t ret, void **buf, struct trusted_frame *csp,
-    void **rcsp)
+    void *rcsp)
 {
 	/*
 	 * Before longjmp is called, the top of the trusted stack contains:
@@ -555,25 +551,24 @@ _rtld_longjmp_impl(uintptr_t ret, void **buf, struct trusted_frame *csp,
 	 */
 
 	struct trusted_frame *target, *cur = csp;
-	void **stack;
+	struct stk_bottom *stk;
 
 	target = cheri_unseal(*buf, sealer_jmpbuf);
-
-	if (!cheri_is_subset(cur, target) || cur->next > (ptraddr_t)target)
-		rtld_fatal("longjmp: Bad target");
+	rtld_require(cheri_is_subset(cur, target) && cur < target,
+	    "c18n: Illegal longjmp from %#p to %#p", cur, target);
 
 	/*
 	 * Unwind each frame before the target frame.
 	 */
-	while (cur < target) {
-		stack = cur->o_stack;
-		stack = cheri_setoffset(stack, cheri_getlen(stack));
-		stack[-1] = cur->o_stack;
+	do {
+		stk = cheri_setoffset(cur->o_sp, cheri_getlen(cur->o_sp));
+		--stk;
+		stk->top = cur->o_sp;
 		cur = cheri_setaddress(cur, cur->next);
-	}
+	} while (cur < target);
 
-	if (cur != target)
-		rtld_fatal("longjmp: Bad target");
+	rtld_require(cur == target,
+	    "c18n: Illegal longjmp from %#p to %#p", cur, target);
 
 	/*
 	 * Set the next frame to the target frame.
@@ -584,9 +579,10 @@ _rtld_longjmp_impl(uintptr_t ret, void **buf, struct trusted_frame *csp,
 	 * Maintain the invariant of the trusted frame and the invariant of the
 	 * bottom of the target compartment's stack.
 	 */
-	stack = cheri_setoffset(rcsp, cheri_getlen(rcsp));
-	csp->o_stack = stack[-1];
-	stack[-1] = rcsp;
+	stk = cheri_setoffset(rcsp, cheri_getlen(rcsp));
+	--stk;
+	csp->o_sp = stk->top;
+	stk->top = rcsp;
 
 	return ((struct jmp_args) { .ret = ret });
 }
@@ -779,7 +775,7 @@ tramp_hook_impl(void *rcsp, int event, void *target, const Obj_Entry *obj,
 	const char *sym;
 	const char *callee;
 
-	uintptr_t *stack;
+	struct stk_bottom *stack;
 	compart_id_t caller_id;
 	const char *caller;
 
@@ -800,7 +796,8 @@ tramp_hook_impl(void *rcsp, int event, void *target, const Obj_Entry *obj,
 #endif
 		{
 			stack = cheri_setoffset(rcsp, cheri_getlen(rcsp));
-		        caller_id = stack[-2];
+			--stack;
+		        caller_id = stack->compart_id;
 		}
 #ifndef __ARM_MORELLO_PURECAP_BENCHMARK_ABI
 		else
@@ -833,14 +830,14 @@ tramp_pgs_append(const struct tramp_data *data)
 	size_t len;
 	/* A capability-aligned buffer large enough to hold a trampoline */
 	_Alignas(_Alignof(struct tramp_header)) char buf[C18N_MAX_TRAMP_SIZE];
+	struct tramp_header *header;
 	char *bufp = buf;
-	struct tramp_header **headerp = (struct tramp_header **)&bufp;
 
 	char *tramp;
 	struct tramp_pg *pg;
 
 	/* Fill a temporary buffer with the trampoline and obtain its length */
-	len = tramp_compile(headerp, data);
+	len = tramp_compile(&bufp, data);
 
 	pg = atomic_load_explicit(&tramp_pgs.head, memory_order_acquire);
 	tramp = tramp_pg_push(pg, len);
@@ -861,8 +858,8 @@ tramp_pgs_append(const struct tramp_data *data)
 	}
 	assert(cheri_gettag(tramp));
 
-	bufp = tramp + (bufp - buf);
 	memcpy(tramp, buf, len);
+	header = (struct tramp_header *)(tramp + (bufp - buf));
 
 	/*
 	 * Ensure i- and d-cache coherency after writing executable code. The
@@ -870,9 +867,9 @@ tramp_pgs_append(const struct tramp_data *data)
 	 * addresses. Derive the start address from pg so that it has
 	 * sufficiently large bounds to contain these rounded addresses.
 	 */
-	__clear_cache(cheri_copyaddress(pg, (*headerp)->entry), tramp + len);
+	__clear_cache(cheri_copyaddress(pg, header->entry), tramp + len);
 
-	return (*headerp);
+	return (header);
 }
 
 static bool
@@ -1178,16 +1175,15 @@ c18n_return_address(void)
 {
 	struct trusted_frame *tframe;
 
-#ifdef __ARM_MORELLO_PURECAP_BENCHMARK_ABI
-	tframe = trusted_stk_get();
-#else
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wframe-address"
+	/*
+	 * Unwind twice to locate the trusted frame.
+	 */
 	tframe = __builtin_frame_address(2);
 #pragma clang diagnostic pop
-#endif
 
-	return (tframe->ret_addr);
+	return (tframe->pc);
 }
 
 /*
@@ -1326,16 +1322,18 @@ dispatch_signal_begin(__siginfohandler_t sigfunc, siginfo_t *info, void *_ucp)
 	struct sigframe {
 		siginfo_t info;
 		ucontext_t context;
-	} *ntop, *otop, **bot;
+	} *ntop, *otop;
+	struct stk_bottom *stack;
 
 	entry = &stk_table_get()->stacks[compart_id_to_stack_index(cid)];
 	if (entry->size == 0)
-		bot = allocate_rstk_impl(compart_id_to_index(cid));
+		stack = allocate_rstk_impl(compart_id_to_index(cid));
 	else
-		bot = entry->bottom;
+		stack = entry->bottom;
+	--stack;
 
-	otop = bot[-1];
-	ntop = bot[-1] = otop - 1;
+	otop = stack->top;
+	ntop = stack->top = otop - 1;
 
 	assert(__is_aligned(ntop, _Alignof(typeof(*ntop))));
 	*ntop = (struct sigframe) {
@@ -1360,16 +1358,18 @@ void dispatch_signal_end(ucontext_t *, ucontext_t *);
 void
 dispatch_signal_end(ucontext_t *new, ucontext_t *old __unused)
 {
-	void *top, **bot;
+	void *top;
+	struct stk_bottom *stack;
 
 	top = (void *)new->uc_mcontext.mc_capregs.cap_sp;
-	bot = cheri_setoffset(top, cheri_getlen(top));
+	stack = cheri_setoffset(top, cheri_getlen(top));
+	--stack;
 
 	/*
 	 * Restore the top of the target compartment's stack to the value in the
 	 * context.
 	 */
-	bot[-1] = top;
+	stack->top = top;
 }
 
 extern __siginfohandler_t *signal_dispatcher;

@@ -262,7 +262,7 @@ END(tramp_hook)
  * defined to describe them.
  */
 #define TRAMP(sym)							\
-	.section .rodata; .globl sym; .align 4; .type sym,#object; sym:
+	.section .rodata; .globl sym; .type sym,#object; sym:
 
 #define TRAMPEND(sym)							\
 	end_##sym:							\
@@ -272,10 +272,18 @@ END(tramp_hook)
 	.quad	end_##sym - sym
 
 #define	PATCH_POINT(tramp, name, label)					\
-	.section .rodata; .globl patch_##tramp##_##name; .align 3;	\
+	.section .rodata; .globl patch_##tramp##_##name; .align 2;	\
 	.type patch_##tramp##_##name,#object;				\
 	.size patch_##tramp##_##name, 4; patch_##tramp##_##name:	\
 	.word	label - end_##tramp
+
+#ifdef __ARM_MORELLO_PURECAP_BENCHMARK_ABI
+#define	TRUSTED_STACK	c18
+#define	TRUSTED_STACK_X	x18
+#else
+#define	TRUSTED_STACK	csp
+#define	TRUSTED_STACK_X	sp
+#endif
 
 TRAMP(tramp_save_caller)
 #ifdef __ARM_MORELLO_PURECAP_BENCHMARK_ABI
@@ -295,13 +303,9 @@ TRAMP(tramp_save_caller)
 	str	c10, [c18, #-CAP_WIDTH]
 
 #ifdef __ARM_MORELLO_PURECAP_BENCHMARK_ABI
-	mrs	c18, rcsp_el0
-#define	TRUSTED_STACK	c18
-	mov	x12, x18
-#else
-	mov	x12, sp
-#define	TRUSTED_STACK	csp
+	mrs	TRUSTED_STACK, rcsp_el0
 #endif
+	mov	x12, TRUSTED_STACK_X
 
 	/*
 	 * Save the address that the callee should return to.
@@ -314,18 +318,17 @@ TRAMP(tramp_save_caller)
 2:	add	x13, x13, #0	/* To be patched at runtime */
 
 	/* Push frame */
-	stp	x12, x13, [TRUSTED_STACK, #-(CAP_WIDTH * 14)]!
-	str	c17, [TRUSTED_STACK, #(CAP_WIDTH * 1)]
-	stp	c30, c19, [TRUSTED_STACK, #(CAP_WIDTH * 2)]
-	stp	c20, c21, [TRUSTED_STACK, #(CAP_WIDTH * 4)]
-	stp	c22, c23, [TRUSTED_STACK, #(CAP_WIDTH * 6)]
-	stp	c24, c25, [TRUSTED_STACK, #(CAP_WIDTH * 8)]
-	stp	c26, c27, [TRUSTED_STACK, #(CAP_WIDTH * 10)]
-	stp	c28, c29, [TRUSTED_STACK, #(CAP_WIDTH * 12)]
+	stp	c29, c30, [TRUSTED_STACK, #-(CAP_WIDTH * 14)]!
+	stp	x12, x13, [TRUSTED_STACK, #(CAP_WIDTH * 2)]
+	stp	c17, c19, [TRUSTED_STACK, #(CAP_WIDTH * 3)]
+	stp	c20, c21, [TRUSTED_STACK, #(CAP_WIDTH * 5)]
+	stp	c22, c23, [TRUSTED_STACK, #(CAP_WIDTH * 7)]
+	stp	c24, c25, [TRUSTED_STACK, #(CAP_WIDTH * 9)]
+	stp	c26, c27, [TRUSTED_STACK, #(CAP_WIDTH * 11)]
+	str	c28, [TRUSTED_STACK, #(CAP_WIDTH * 13)]
 #ifdef __ARM_MORELLO_PURECAP_BENCHMARK_ABI
 	msr	rcsp_el0, TRUSTED_STACK
 #endif
-#undef	TRUSTED_STACK
 
 3:	ldr	c19, #0		/* To be patched at runtime */
 TRAMPEND(tramp_save_caller)
@@ -333,6 +336,18 @@ TRAMPEND(tramp_save_caller)
 PATCH_POINT(tramp_save_caller, cookie, 1b)
 PATCH_POINT(tramp_save_caller, ret_args, 2b)
 PATCH_POINT(tramp_save_caller, target, 3b)
+
+/*
+ * Save the address of the current frame to c29 so that unwinders can locate it.
+ * When transitioning to Restricted mode code, its tag must be cleared.
+ */
+TRAMP(tramp_update_fp)
+	mov	c29, TRUSTED_STACK
+TRAMPEND(tramp_update_fp)
+
+TRAMP(tramp_update_fp_untagged)
+	mov	x29, TRUSTED_STACK_X
+TRAMPEND(tramp_update_fp_untagged)
 
 TRAMP(tramp_call_hook)
 1:	ldr	c18, #0		/* To be patched at runtime */
@@ -388,28 +403,6 @@ TRAMP(tramp_switch_stack)
 	blr	[c30, #0]			/* allocate_rstk() */
 #endif
 3:	ldr	c17, [c17, #-CAP_WIDTH]
-
-	/* Move the c9 buffer to the target stack */
-	cbz	x9, 6f
-	gclen	x11, c9
-	add	c30, c9, x11
-	lsr	x11, x11, #4
-	tst	x30, #0xf
-	b.eq	5f
-
-	orr	x12, x30, #0xfffffffffffffff0
-	add	c17, c17, x12
-7:	ldrb	w12, [c30, #-1]!
-	strb	w12, [c17, #-1]!
-	tst	x30, #0xf
-	b.ne	7b
-
-4:	cbz	x11, 6f
-5:	ldr	c12, [c30, #-CAP_WIDTH]!
-	str	c12, [c17, #-CAP_WIDTH]!
-	sub	x11, x11, #1
-	b	4b
-6:
 TRAMPEND(tramp_switch_stack)
 
 PATCH_POINT(tramp_switch_stack, cid, 1b)
@@ -419,12 +412,6 @@ TRAMP(tramp_invoke_exe)
 	mov	csp, c17
 	blr	x19
 #else
-	/*
-	 * Save the address of the current frame to c29 so that RTLD functions
-	 * can locate it. c29 will be restored after the function call returns.
-	 */
-	mov	c29, csp
-
 	/*
 	 * Set the Restricted stack to a dummy stack located at the bottom of
 	 * the trusted stack.
@@ -471,7 +458,9 @@ TRAMP(tramp_invoke_res)
 	mov	x26, xzr
 	mov	x27, xzr
 	mov	x28, xzr
-	mov	x29, xzr
+	/*
+	 * - c29: Frame pointer (scalar)
+	 */
 
 	/*
 	 * Clear temporary registers, except
@@ -499,20 +488,17 @@ TRAMPEND(tramp_invoke_res)
 
 TRAMP(tramp_pop_frame)
 #ifdef __ARM_MORELLO_PURECAP_BENCHMARK_ABI
-	mrs	c18, rcsp_el0
-#define	TRUSTED_STACK	c18
-#else
-#define	TRUSTED_STACK	csp
+	mrs	TRUSTED_STACK, rcsp_el0
 #endif
 	/* Restore callee-saved registers */
-	ldp	x10, x11, [TRUSTED_STACK]
-	ldr	c12, [TRUSTED_STACK, #(CAP_WIDTH * 1)]
-	ldp	c30, c19, [TRUSTED_STACK, #(CAP_WIDTH * 2)]
-	ldp	c20, c21, [TRUSTED_STACK, #(CAP_WIDTH * 4)]
-	ldp	c22, c23, [TRUSTED_STACK, #(CAP_WIDTH * 6)]
-	ldp	c24, c25, [TRUSTED_STACK, #(CAP_WIDTH * 8)]
-	ldp	c26, c27, [TRUSTED_STACK, #(CAP_WIDTH * 10)]
-	ldp	c28, c29, [TRUSTED_STACK, #(CAP_WIDTH * 12)]
+	ldp	c29, c30, [TRUSTED_STACK]
+	ldp	x10, x11, [TRUSTED_STACK, #(CAP_WIDTH * 2)]
+	ldp	c12, c19, [TRUSTED_STACK, #(CAP_WIDTH * 3)]
+	ldp	c20, c21, [TRUSTED_STACK, #(CAP_WIDTH * 5)]
+	ldp	c22, c23, [TRUSTED_STACK, #(CAP_WIDTH * 7)]
+	ldp	c24, c25, [TRUSTED_STACK, #(CAP_WIDTH * 9)]
+	ldp	c26, c27, [TRUSTED_STACK, #(CAP_WIDTH * 11)]
+	ldr	c28, [TRUSTED_STACK, #(CAP_WIDTH * 13)]
 
 	/*
 	 * Restore caller's saved rcsp.
@@ -541,7 +527,6 @@ TRAMP(tramp_pop_frame)
 #ifdef __ARM_MORELLO_PURECAP_BENCHMARK_ABI
 	msr	rcsp_el0, TRUSTED_STACK
 #endif
-#undef	TRUSTED_STACK
 
 	mov	x2, xzr
 	mov	x3, xzr

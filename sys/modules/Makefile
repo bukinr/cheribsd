@@ -308,6 +308,7 @@ SUBDIR=	\
 	${_pcfclock} \
 	${_pf} \
 	${_pflog} \
+	${_pflow} \
 	${_pfsync} \
 	plip \
 	${_pms} \
@@ -619,6 +620,7 @@ _netgraph=	netgraph
 	${MK_INET6_SUPPORT} != "no")) || defined(ALL_MODULES)
 _pf=		pf
 _pflog=		pflog
+_pflow=		pflow
 .if ${MK_INET_SUPPORT} != "no"
 _pfsync=	pfsync
 .endif

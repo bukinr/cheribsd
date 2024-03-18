@@ -1026,6 +1026,7 @@ _vm_map_init(vm_map_t map, pmap_t pmap, vm_pointer_t min, vm_pointer_t max)
 
 #ifdef CHERI_CAPREVOKE
 	map->vm_cheri_revoke_st = CHERI_REVOKE_ST_NONE; /* and epoch 0 */
+	map->vm_cheri_async_revoke_st = CHERI_REVOKE_ST_NONE; /* and epoch 0 */
 	map->vm_cheri_revoke_quarantining = false;
 	RB_INIT(&map->quarantine);
 #endif
@@ -1664,7 +1665,7 @@ vm_map_entry_start_revocation(vm_map_t map, vm_map_entry_t *entry)
 	   ("an entry %p is already being revoked", map->rev_entry));
 	VM_MAP_ASSERT_LOCKED(map);
 	if (RB_EMPTY(&map->quarantine))
-		return (FALSE);
+		return (false);
 	rev_entry = RB_MAX(vm_map_quarantine, &map->quarantine);
 
 	/*
@@ -1708,7 +1709,7 @@ vm_map_entry_start_revocation(vm_map_t map, vm_map_entry_t *entry)
 	if (entry != NULL)
 		*entry = map->rev_entry;
 	/* XXX stats */
-	return (TRUE);
+	return (true);
 }
 
 void
@@ -3280,27 +3281,6 @@ again:
 	 */
 	vm_map_wait_busy(map);
 
-#ifdef CHERI_CAPREVOKE
-	if (cheri_revoke_st_get_state(map->vm_cheri_revoke_st) !=
-	    CHERI_REVOKE_ST_NONE) {
-		if (map == &curthread->td_proc->p_vmspace->vm_map) {
-			/* Push our revocation along */
-			vm_map_unlock(map);
-
-			// XXX!
-
-			goto again;
-		} else {
-			/* It's hard to push on another thread; wait */
-			rv = cv_wait_sig(&map->vm_cheri_revoke_cv, &map->lock);
-			if (rv != 0) {
-				return rv;
-			}
-			goto again;
-		}
-	}
-#endif
-
 	VM_MAP_RANGE_CHECK(map, start, end);
 
 	if (!vm_map_lookup_entry(map, start, &first_entry))
@@ -4854,6 +4834,7 @@ vm_map_clear(vm_map_t map)
 	 * no capabilities).  Clear revocation state.
 	 */
 	map->vm_cheri_revoke_st = CHERI_REVOKE_ST_NONE;
+	map->vm_cheri_async_revoke_st = CHERI_REVOKE_ST_NONE;
 	/* quarantine is drained below. */
 	map->rev_entry = NULL;
 #ifdef CHERI_CAPREVOKE_STATS
@@ -5147,16 +5128,7 @@ vmspace_fork(struct vmspace *vm1, vm_ooffset_t *fork_charge)
 	KASSERT(locked, ("vmspace_fork: lock failed"));
 
 #ifdef CHERI_CAPREVOKE
-	/*
-	 * Revocation holds the map busy, so if we're here, there isn't a state
-	 * transition in progress (but an epoch might be open).
-	 *
-	 * XXX NWF We should probably go around again to force the epoch closed.
-	 */
-	vm2->vm_map.vm_cheri_revoke_st = vm1->vm_map.vm_cheri_revoke_st;
-	vm2->vm_map.vm_cheri_revoke_test = vm1->vm_map.vm_cheri_revoke_test;
-	vm2->vm_map.vm_cheri_revoke_quarantining =
-	    vm1->vm_map.vm_cheri_revoke_quarantining;
+	cheri_revoke_vmspace_fork(vm2, vm1);
 #endif
 
 	error = pmap_vmspace_copy(new_map->pmap, old_map->pmap);

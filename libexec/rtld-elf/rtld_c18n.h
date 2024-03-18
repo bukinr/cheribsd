@@ -29,6 +29,7 @@
 #define RTLD_C18N_H
 
 #include <stdint.h>
+#include "rtld_c18n_machdep.h"
 
 /*
  * Global symbols
@@ -38,6 +39,7 @@ extern const char *ld_compartment_utrace;
 extern const char *ld_compartment_enable;
 extern const char *ld_compartment_overhead;
 extern const char *ld_compartment_sig;
+extern const char *ld_compartment_unwind;
 
 /*
  * Policies
@@ -191,7 +193,7 @@ struct tramp_header {
 
 void *tramp_hook(void *, int, void *, const Obj_Entry *, const Elf_Sym *,
     void *);
-size_t tramp_compile(struct tramp_header **, const struct tramp_data *);
+size_t tramp_compile(char **, const struct tramp_data *);
 void *tramp_intern(const Obj_Entry *reqobj, const struct tramp_data *);
 
 struct func_sig sigtab_get(const Obj_Entry *, unsigned long);

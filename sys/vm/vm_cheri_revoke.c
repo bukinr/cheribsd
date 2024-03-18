@@ -35,13 +35,21 @@
 
 #include <sys/param.h>
 #include <sys/systm.h>
+#include <sys/counter.h>
+#include <sys/kernel.h>
+#include <sys/kthread.h>
 #include <sys/lock.h>
+#include <sys/malloc.h>
 #include <sys/mutex.h>
 #include <sys/pctrie.h>
 #include <sys/proc.h>
+#include <sys/queue.h>
+#include <sys/refcount.h>
 #include <sys/rwlock.h>
 #include <sys/sched.h>
+#include <sys/sysctl.h>
 #include <sys/sysent.h>
+#include <sys/unistd.h>
 
 #include <vm/vm.h>
 #include <vm/vm_param.h>
@@ -56,10 +64,162 @@
 #include <cheri/revoke_kern.h>
 #include <vm/vm_cheri_revoke.h>
 
+static void vm_cheri_revoke_pass_pre(vm_map_t);
+static void vm_cheri_revoke_pass_post(vm_map_t);
+static int vm_cheri_revoke_pass_locked(const struct vm_cheri_revoke_cookie *);
+
+static SYSCTL_NODE(_vm_stats, OID_AUTO, cheri_revoke,
+    CTLFLAG_RD | CTLFLAG_MPSAFE, 0,
+    "CHERI revocation statistics");
+
+static COUNTER_U64_DEFINE_EARLY(cheri_revoke_errors);
+SYSCTL_COUNTER_U64(_vm_stats_cheri_revoke, OID_AUTO, errors, CTLFLAG_RD,
+    &cheri_revoke_errors,
+    "Number of error returns from the page fault handler");
+
+static COUNTER_U64_DEFINE_EARLY(cheri_revoke_restarts);
+SYSCTL_COUNTER_U64(_vm_stats_cheri_revoke, OID_AUTO, restarts, CTLFLAG_RD,
+    &cheri_revoke_restarts,
+    "Number of VM map re-lookups");
+
+/***************************** KERNEL THREADS ***************************/
+
+static MALLOC_DEFINE(M_REVOKE, "cheri_revoke", "cheri_revoke temporary data");
+
+struct async_revoke_cookie {
+	struct vmspace	*vm;
+	struct vm_cheri_revoke_cookie cookie;
+	TAILQ_ENTRY(async_revoke_cookie) link;
+};
+
+static struct mtx async_revoke_mtx;
+MTX_SYSINIT(async_revoke_mtx, &async_revoke_mtx, "async revoke", MTX_DEF);
+static TAILQ_HEAD(, async_revoke_cookie) async_revoke_work =
+    TAILQ_HEAD_INITIALIZER(async_revoke_work);
+
+static void
+vm_cheri_revoke_pass_async_pre(vm_map_t map, struct vm_cheri_revoke_cookie *crc)
+{
+	cheri_revoke_epoch_t epoch;
+	enum cheri_revoke_state state __diagused;
+
+	vm_cheri_revoke_pass_pre(map);
+	epoch = cheri_revoke_st_get_epoch(map->vm_cheri_async_revoke_st);
+	state = cheri_revoke_st_get_state(map->vm_cheri_async_revoke_st);
+
+	KASSERT((epoch & 1) == 0,
+	    ("unexpected async revoke epoch %lu (state %d)", epoch, state));
+	KASSERT(state == CHERI_REVOKE_ST_INITING,
+	    ("unexpected async revoke state %d (epoch %lu)", state, epoch));
+
+	cheri_revoke_st_set(&map->vm_cheri_async_revoke_st, epoch + 1,
+	    CHERI_REVOKE_ST_INITED);
+	map->vm_cheri_async_revoke_shadow = crc->crshadow;
+}
+
+static void
+vm_cheri_revoke_pass_async_post(vm_map_t map, int error)
+{
+	cheri_revoke_epoch_t epoch;
+	enum cheri_revoke_state state __diagused;
+
+	epoch = cheri_revoke_st_get_epoch(map->vm_cheri_async_revoke_st);
+	state = cheri_revoke_st_get_state(map->vm_cheri_async_revoke_st);
+
+	KASSERT((epoch & 1) == 1,
+	    ("unexpected post-async revoke epoch %lu (state %d)", epoch, state));
+	KASSERT(state == CHERI_REVOKE_ST_INITED,
+	    ("unexpected post-async revoke state %d (epoch %lu)", state, epoch));
+
+	map->vm_cheri_async_revoke_status = error;
+	if (error == KERN_SUCCESS)
+		epoch++;
+	cheri_revoke_st_set(&map->vm_cheri_async_revoke_st, epoch,
+	    CHERI_REVOKE_ST_CLOSING);
+	map->vm_cheri_async_revoke_shadow = NULL;
+	vm_cheri_revoke_pass_post(map);
+}
+
+static void
+vm_cheri_revoke_kproc(void *arg __unused)
+{
+	struct vmspace *myvm;
+
+	/*
+	 * Make sure that our own vmspace doesn't go away when we switch.
+	 */
+	myvm = vmspace_acquire_ref(curproc);
+
+	for (;;) {
+		struct async_revoke_cookie *arc;
+		vm_map_t map;
+		int error;
+
+		mtx_lock(&async_revoke_mtx);
+		if ((arc = TAILQ_FIRST(&async_revoke_work)) == NULL) {
+			if (curproc->p_vmspace != myvm) {
+				mtx_unlock(&async_revoke_mtx);
+				vmspace_switch_aio(myvm);
+				continue;
+			}
+			msleep(&async_revoke_work, &async_revoke_mtx, PDROP,
+			    "rvkslp", 0);
+			continue;
+		}
+
+		TAILQ_REMOVE(&async_revoke_work, arc, link);
+		mtx_unlock(&async_revoke_mtx);
+
+		vmspace_switch_aio(arc->vm);
+
+		/*
+		 * Advance the async state machine.
+		 */
+		map = &arc->vm->vm_map;
+		vm_cheri_revoke_pass_async_pre(map, &arc->cookie);
+
+		/*
+		 * Do the actual revocation pass.
+		 */
+		error = vm_cheri_revoke_pass_locked(&arc->cookie);
+
+		/*
+		 * A revocation pass is done.  Advance the state machine again
+		 * so that the application can see the result.
+		 */
+		vm_cheri_revoke_pass_async_post(map, error);
+
+		vmspace_free(arc->vm);
+		free(arc, M_REVOKE);
+	}
+
+	vmspace_free(myvm);
+	kproc_exit(0);
+}
+
+static int vm_cheri_revoke_nkproc = 1;
+SYSCTL_INT(_vm_cheri_revoke, OID_AUTO, nkproc, CTLFLAG_RDTUN,
+    &vm_cheri_revoke_nkproc, 0, "Number of revocation worker processes");
+
+static void
+vm_cheri_revoke_kproc_init(void *arg __unused)
+{
+	int error;
+
+	for (int i = 0; i < vm_cheri_revoke_nkproc; i++) {
+		error = kproc_create(vm_cheri_revoke_kproc, NULL, NULL, RFNOWAIT,
+		    0, "cheri_revoke");
+		if (error != 0)
+			panic("%s: failed to create worker process", __func__);
+	}
+}
+SYSINIT(vm_cheri_revoke_kproc, SI_SUB_KTHREAD_INIT, SI_ORDER_ANY,
+    vm_cheri_revoke_kproc_init, NULL);
+
 /***************************** PAGE VISITS ******************************/
 
 static inline int
-vm_cheri_revoke_should_visit_page(vm_page_t m, int flags)
+vm_cheri_revoke_should_visit_page(vm_page_t m)
 {
 	vm_page_astate_t mas = vm_page_astate_load(m);
 
@@ -94,8 +254,8 @@ enum vm_cro_visit {
  * Given a writable, xbusy page, visit it as part of the background scan, RW.
  */
 static void
-vm_cheri_revoke_visit_rw(const struct vm_cheri_revoke_cookie *crc, int flags,
-    vm_page_t m, bool *cap)
+vm_cheri_revoke_visit_rw(const struct vm_cheri_revoke_cookie *crc, vm_page_t m,
+    bool *cap)
 {
 	int hascaps;
 	CHERI_REVOKE_STATS_FOR(crst, crc);
@@ -176,8 +336,8 @@ vm_cheri_revoke_visit_rw(const struct vm_cheri_revoke_cookie *crc, int flags,
  * is clear to advance and carry on.
  */
 static enum vm_cro_visit
-vm_cheri_revoke_visit_ro(const struct vm_cheri_revoke_cookie *crc, int flags,
-    vm_page_t m, bool *cap)
+vm_cheri_revoke_visit_ro(const struct vm_cheri_revoke_cookie *crc, vm_page_t m,
+    bool *cap)
 {
 	CHERI_REVOKE_STATS_FOR(crst, crc);
 	int hascaps;
@@ -338,9 +498,6 @@ out:
 	sx_sunlock(&uvms->vm_map.vm_cheri_revoke_stats_sx);
 #endif
 
-	if (hascookie)
-		vm_cheri_revoke_cookie_rele(&crc);
-
 	return (res);
 }
 
@@ -385,7 +542,7 @@ enum vm_cro_at {
  * caller should just repeat the call.  On failure, *ooff will not be modified.
  */
 static enum vm_cro_at
-vm_cheri_revoke_object_at(const struct vm_cheri_revoke_cookie *crc, int flags,
+vm_cheri_revoke_object_at(const struct vm_cheri_revoke_cookie *crc,
     vm_map_entry_t entry, vm_offset_t ioff, vm_offset_t *ooff, int *vmres)
 {
 	CHERI_REVOKE_STATS_FOR(crst, crc);
@@ -550,7 +707,7 @@ vm_cheri_revoke_object_at(const struct vm_cheri_revoke_cookie *crc, int flags,
 	mxbusy = true;
 	VM_OBJECT_WUNLOCK(obj);
 
-	if (!vm_cheri_revoke_should_visit_page(m, flags)) {
+	if (!vm_cheri_revoke_should_visit_page(m)) {
 		CHERI_REVOKE_STATS_BUMP(crst, pages_skip);
 		goto ok;
 	}
@@ -567,7 +724,7 @@ visit_rw:
 
 		if (m->object == obj) {
 			/* Visit the page RW in place */
-			vm_cheri_revoke_visit_rw(crc, flags, m, &viscap);
+			vm_cheri_revoke_visit_rw(crc, m, &viscap);
 			goto ok;
 		}
 
@@ -582,7 +739,7 @@ visit_rw:
 visit_ro:
 	KASSERT(mxbusy || mwired, ("RO visit !busy !wired?"));
 
-	switch (vm_cheri_revoke_visit_ro(crc, flags, m, &viscap)) {
+	switch (vm_cheri_revoke_visit_ro(crc, m, &viscap)) {
 	case VM_CHERI_REVOKE_VIS_DONE:
 		/* We were able to conclude that the page was clean while RO*/
 		goto ok;
@@ -744,7 +901,7 @@ ok:
  * held across invocation.
  */
 static int
-vm_cheri_revoke_map_entry(const struct vm_cheri_revoke_cookie *crc, int flags,
+vm_cheri_revoke_map_entry(const struct vm_cheri_revoke_cookie *crc,
     vm_map_entry_t entry, vm_offset_t *addr)
 {
 	vm_offset_t ooffset;
@@ -774,12 +931,14 @@ vm_cheri_revoke_map_entry(const struct vm_cheri_revoke_cookie *crc, int flags,
 		/* Find ourselves in this object */
 		ooffset = *addr - entry->start + entry->offset;
 
-		res = vm_cheri_revoke_object_at(
-		    crc, flags, entry, ooffset, &ooffset, &vmres);
+		res = vm_cheri_revoke_object_at(crc, entry, ooffset, &ooffset,
+		    &vmres);
 		switch (res) {
 		case VM_CHERI_REVOKE_AT_VMERR:
+			counter_u64_add(cheri_revoke_errors, 1);
 			return (vmres);
 		case VM_CHERI_REVOKE_AT_TICK:
+			counter_u64_add(cheri_revoke_restarts, 1);
 			/* Have the caller retranslate the map */
 			return (KERN_SUCCESS);
 		case VM_CHERI_REVOKE_AT_OK:
@@ -800,50 +959,71 @@ fini:
 	return (KERN_SUCCESS);
 }
 
+static bool cheri_revoke_pin_cpu = false;
+SYSCTL_BOOL(_vm_cheri_revoke, OID_AUTO, pin_cpu, CTLFLAG_RWTUN,
+    &cheri_revoke_pin_cpu, 0,
+    "Pin the revoker to a single CPU when scanning");
+
+static void
+vm_cheri_revoke_pass_pre(vm_map_t map)
+{
+	/*
+	 * Interlock with fork(): we'll block on the map lock if a concurrent
+	 * fork is in progress, and once we acquire the lock, the busy state
+	 * ensures that subsequent calls to vmspace_fork() will block until
+	 * we're done.
+	 *
+	 * The revocation scan triggers copy-on-write faults, and we're not
+	 * ready to consider all of the implications of a concurrent fork (and
+	 * pmap_copy() call) just yet.
+	 */
+	vm_map_lock(map);
+	if (map->busy)
+		vm_map_wait_busy(map);
+	vm_map_busy(map);
+}
+
+static void
+vm_cheri_revoke_pass_post(vm_map_t map)
+{
+	vm_map_unbusy(map);
+	vm_map_unlock(map);
+}
+
 /*
- * Do a sweep through all mapped objects, hunting for revoked capabilities,
- * as defined by the machdep vm_cheri_revoke_page.
+ * Do a sweep through all mapped objects, hunting for revoked capabilities.
  *
- * For simplicity, the proc must be held on entry and will be held
- * throughout.  XXX Would we rather do something else?
+ * The caller must hold a reference on the vmspace into which this map is
+ * embedded.
+ *
+ * The map lock must be held upon entry, and will be reacquired before
+ * returning.
  */
-int
-vm_cheri_revoke_pass(const struct vm_cheri_revoke_cookie *crc, int flags)
+static int
+vm_cheri_revoke_pass_locked(const struct vm_cheri_revoke_cookie *crc)
 {
 	int res = KERN_SUCCESS;
 	const vm_map_t map = crc->map;
 	vm_map_entry_t entry;
-	vm_offset_t addr;
+	bool pinned;
 
-	addr = 0;
-
-	/* Acquire the address space map write-locked and not busy */
-	vm_map_lock(map);
-	if (map->busy)
-		vm_map_wait_busy(map);
-
-	/* Stay on this core for the duration */
-	sched_pin();
-
-	/*
-	 * Downgrade VM map locks to read-locked but busy to guard against
-	 * a racing fork (see vmspace_fork).
-	 */
-	vm_map_busy(map);
 	vm_map_lock_downgrade(map);
 
+	/*
+	 * Pinning the revoker helps improve determinism and so is useful for
+	 * benchmarking, but might be a liability under load.
+	 */
+	pinned = atomic_load_bool(&cheri_revoke_pin_cpu);
+	if (pinned)
+		sched_pin();
+
 	entry = vm_map_entry_first(map);
-
-	if (entry != &map->header)
-		addr = entry->start;
-
-	while (entry != &map->header) {
+	for (vm_offset_t addr = entry->start; entry != &map->header;) {
 		/*
 		 * XXX Somewhere around here we should be resetting
 		 * MPROT_QUARANTINE'd map entries to be usable again, yes?
 		 */
-
-		res = vm_cheri_revoke_map_entry(crc, flags, entry, &addr);
+		res = vm_cheri_revoke_map_entry(crc, entry, &addr);
 
 		/*
 		 * We might be bailing out because a page fault failed for
@@ -854,6 +1034,10 @@ vm_cheri_revoke_pass(const struct vm_cheri_revoke_cookie *crc, int flags)
 			goto out;
 		}
 
+		/*
+		 * The map lock may have been dropped, so we need to re-lookup
+		 * the current entry.
+		 */
 		if (!vm_map_lookup_entry(map, addr, &entry)) {
 			entry = vm_map_entry_succ(entry);
 			if (entry != &map->header)
@@ -875,13 +1059,44 @@ vm_cheri_revoke_pass(const struct vm_cheri_revoke_cookie *crc, int flags)
 out:
 	vm_map_unlock_read(map);
 
-	sched_unpin();
+	if (pinned)
+		sched_unpin();
 
-	vm_map_lock(map);
-	vm_map_unbusy(map);
-	vm_map_unlock(map);
+	vm_map_lock(crc->map);
 
 	return (res);
+}
+
+int
+vm_cheri_revoke_pass(const struct vm_cheri_revoke_cookie *crc)
+{
+	int res;
+
+	vm_cheri_revoke_pass_pre(crc->map);
+	res = vm_cheri_revoke_pass_locked(crc);
+	vm_cheri_revoke_pass_post(crc->map);
+
+	return (res);
+}
+
+void
+vm_cheri_revoke_pass_async(struct vmspace *vm,
+    const struct vm_cheri_revoke_cookie *crc)
+{
+	struct async_revoke_cookie *arc;
+	unsigned int old __diagused;
+
+	old = refcount_acquire(&vm->vm_refcnt);
+	KASSERT(old > 0, ("%s: vm %p refcount 0", __func__, vm));
+
+	arc = malloc(sizeof(*arc), M_REVOKE, M_WAITOK);
+	arc->vm = vm;
+	arc->cookie = *crc;
+
+	mtx_lock(&async_revoke_mtx);
+	TAILQ_INSERT_TAIL(&async_revoke_work, arc, link);
+	wakeup_one(&async_revoke_work);
+	mtx_unlock(&async_revoke_mtx);
 }
 
 void
@@ -914,13 +1129,19 @@ vm_cheri_assert_consistent_clg(struct vm_map *map)
 int
 vm_cheri_revoke_cookie_init(vm_map_t map, struct vm_cheri_revoke_cookie *crc)
 {
-	KASSERT(map == &curproc->p_vmspace->vm_map,
+	KASSERT(map == &curproc->p_vmspace->vm_map || map->size == 0,
 	    ("cheri revoke does not support foreign maps (yet)"));
 
-	if (!SV_CURPROC_FLAG(SV_CHERI))
+	if (!SV_CURPROC_FLAG(SV_CHERI) && (curproc->p_flag & P_SYSTEM) == 0)
 		return (KERN_INVALID_ARGUMENT);
 
 	crc->map = map;
+	if ((curproc->p_flag & P_SYSTEM) != 0) {
+		KASSERT(map->vm_cheri_async_revoke_shadow != NULL,
+		    ("cheri_revoke_shadow not installed in kernel map"));
+		crc->crshadow = map->vm_cheri_async_revoke_shadow;
+		return (KERN_SUCCESS);
+	}
 
 	/*
 	 * Build the capability to the shadow bitmap that we will use for probes
@@ -941,12 +1162,6 @@ vm_cheri_revoke_cookie_init(vm_map_t map, struct vm_cheri_revoke_cookie *crc)
 	    curproc->p_sysent->sv_cheri_revoke_shadow_offset);
 
 	return (KERN_SUCCESS);
-}
-
-void
-vm_cheri_revoke_cookie_rele(struct vm_cheri_revoke_cookie *crc __unused)
-{
-	return;
 }
 
 /******************************* VM & SHADOW *******************************/
@@ -1166,7 +1381,6 @@ void
 vm_cheri_revoke_info_page(struct vm_map *map, struct sysentvec *sv,
     struct cheri_revoke_info_page * __capability *ifp)
 {
-	/* XXX In prinicple, it could work cross-process, but not yet */
 	KASSERT(map == &curthread->td_proc->p_vmspace->vm_map,
 	    ("vm_cheri_revoke_page_info req. intraprocess work right now"));
 
