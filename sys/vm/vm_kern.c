@@ -310,7 +310,7 @@ kmem_alloc_attr_domain(int domain, vm_size_t size, int flags, vm_paddr_t low,
 			pmap_zero_page(m);
 		vm_page_valid(m);
 		VM_OBJECT_ASSERT_CAP(object, prot);
-		if (prot & VM_PROT_WRITE_CAP)
+		if (VM_PROT_HAS_WRITE_CAP(prot))
 			vm_page_aflag_set(m, PGA_CAPSTORE | PGA_CAPDIRTY);
 		pmap_enter(kernel_pmap, addr + i, m, prot,
 		    prot | PMAP_ENTER_WIRED, 0);
@@ -593,6 +593,7 @@ int
 kmem_back_domain(int domain, vm_object_t object, vm_pointer_t addr,
     vm_size_t size, int flags)
 {
+	struct pctrie_iter pages;
 	vm_offset_t offset, i;
 	vm_page_t m, mpred;
 	vm_prot_t prot;
@@ -615,11 +616,12 @@ kmem_back_domain(int domain, vm_object_t object, vm_pointer_t addr,
 	prot |= VM_PROT_CAP;
 
 	i = 0;
+	vm_page_iter_init(&pages, object);
 	VM_OBJECT_WLOCK(object);
 retry:
-	mpred = vm_radix_lookup_le(&object->rtree, atop(offset + i));
+	mpred = vm_radix_iter_lookup_lt(&pages, atop(offset + i));
 	for (; i < size; i += PAGE_SIZE, mpred = m) {
-		m = vm_page_alloc_domain_after(object, atop(offset + i),
+		m = vm_page_alloc_domain_after(object, &pages, atop(offset + i),
 		    domain, pflags, mpred);
 
 		/*
@@ -643,7 +645,7 @@ retry:
 		    ("kmem_malloc: page %p is managed", m));
 		vm_page_valid(m);
 		VM_OBJECT_ASSERT_CAP(object, prot);
-		if (prot & VM_PROT_WRITE_CAP)
+		if (VM_PROT_HAS_WRITE_CAP(prot))
 			vm_page_aflag_set(m, PGA_CAPSTORE | PGA_CAPDIRTY);
 		pmap_enter(kernel_pmap, addr + i, m, prot,
 		    prot | PMAP_ENTER_WIRED, 0);
@@ -722,16 +724,16 @@ _kmem_unback(vm_object_t object, vm_offset_t addr, vm_size_t size)
 	pmap_remove(kernel_pmap, addr, addr + size);
 	offset = addr - VM_MIN_KERNEL_ADDRESS;
 	end = offset + size;
-	VM_OBJECT_WLOCK(object);
 	vm_page_iter_init(&pages, object);
-	m = vm_page_iter_lookup(&pages, atop(offset)); 
+	VM_OBJECT_WLOCK(object);
+	m = vm_radix_iter_lookup(&pages, atop(offset)); 
 	domain = vm_page_domain(m);
 	if (__predict_true((m->oflags & VPO_KMEM_EXEC) == 0))
 		arena = vm_dom[domain].vmd_kernel_arena;
 	else
 		arena = vm_dom[domain].vmd_kernel_rwx_arena;
 	for (; offset < end; offset += PAGE_SIZE,
-	    m = vm_page_iter_lookup(&pages, atop(offset))) {
+	    m = vm_radix_iter_lookup(&pages, atop(offset))) {
 		vm_page_xbusy_claim(m);
 		vm_page_unwire_noq(m);
 		vm_page_iter_free(&pages, m);

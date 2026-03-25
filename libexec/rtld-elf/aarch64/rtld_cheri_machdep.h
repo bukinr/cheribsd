@@ -49,8 +49,7 @@
 	(CHERI_PERM_SW_VMEM)
 
 #ifdef __CHERI_PURE_CAPABILITY__
-/* TODO: ABIs with tight bounds */
-#define can_use_tight_pcc_bounds(obj) ((void)(obj), false)
+#define can_use_tight_pcc_bounds(obj) ((obj)->npcc_caps != 0)
 #endif
 
 /*
@@ -72,7 +71,7 @@ make_code_cap(const Elf_Sym *def, const struct Struct_Obj_Entry *defobj,
 	 * Note: The addend is required for C++ exceptions since capabilities
 	 * for catch blocks point to the middle of a function.
 	 */
-	ret = cheri_offset_inc(ret, addend);
+	ret = (const char * __capability)ret + addend;
 	/* All code pointers should be sentries: */
 	ret = __builtin_cheri_seal_entry(ret);
 	return __DECONST_CAP(dlfunc_t __capability, ret);

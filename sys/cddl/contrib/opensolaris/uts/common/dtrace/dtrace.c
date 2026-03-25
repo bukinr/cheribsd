@@ -633,7 +633,8 @@ static dtrace_probe_t *dtrace_probe_lookup_id(dtrace_id_t id);
 static void dtrace_enabling_provide(dtrace_provider_t *);
 static int dtrace_enabling_match(dtrace_enabling_t *, int *);
 static void dtrace_enabling_matchall(void);
-static void dtrace_enabling_reap(void);
+static void dtrace_enabling_matchall_task(void *);
+static void dtrace_enabling_reap(void *);
 static dtrace_state_t *dtrace_anon_grab(void);
 static dtrace_difval_t dtrace_helper(int, dtrace_mstate_t *,
     dtrace_state_t *, uint64_t, uint64_t);
@@ -11355,18 +11356,19 @@ dtrace_ecb_resize(dtrace_ecb_t *ecb)
 			if (curneeded == UINT32_MAX) {
 				/*
 				 * This is the first record in a tuple.  Align
-				 * curneeded to be at offset 4 in an 8-byte
-				 * aligned block.
+				 * curneeded to be at offset 4 in an aligned
+				 * block.
 				 */
 				ASSERT(act->dta_prev == NULL ||
 				    !act->dta_prev->dta_intuple);
 				ASSERT3U(aggbase, ==, UINT32_MAX);
 				curneeded = P2PHASEUP(ecb->dte_size,
-				    sizeof (uint64_t), sizeof (dtrace_aggid_t));
+				    sizeof (uint64ptr_t),
+				    sizeof (dtrace_aggid_t));
 
 				aggbase = curneeded - sizeof (dtrace_aggid_t);
 				ASSERT(IS_P2ALIGNED(aggbase,
-				    sizeof (uint64_t)));
+				    sizeof (uint64ptr_t)));
 			}
 			curneeded = P2ROUNDUP(curneeded, rec->dtrd_alignment);
 			rec->dtrd_offset = curneeded;
@@ -13107,6 +13109,12 @@ dtrace_enabling_match(dtrace_enabling_t *enab, int *nmatched)
 }
 
 static void
+dtrace_enabling_matchall_task(void *args __unused)
+{
+	dtrace_enabling_matchall();
+}
+
+static void
 dtrace_enabling_matchall(void)
 {
 	dtrace_enabling_t *enab;
@@ -13233,7 +13241,7 @@ retry:
  * Called to reap ECBs that are attached to probes from defunct providers.
  */
 static void
-dtrace_enabling_reap(void)
+dtrace_enabling_reap(void *args __unused)
 {
 	dtrace_provider_t *prov;
 	dtrace_probe_t *probe;
@@ -16836,8 +16844,8 @@ dtrace_module_loaded(modctl_t *ctl)
 		return;
 	}
 
-	(void) taskq_dispatch(dtrace_taskq,
-	    (task_func_t *)dtrace_enabling_matchall, NULL, TQ_SLEEP);
+	(void)taskq_dispatch(dtrace_taskq,
+	    (task_func_t *)dtrace_enabling_matchall_task, NULL, TQ_SLEEP);
 
 	mutex_exit(&dtrace_lock);
 

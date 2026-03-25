@@ -7,7 +7,7 @@
 .include <bsd.compat.mk>
 .endif
 
-__<bsd.lib.mk>__:
+__<bsd.lib.mk>__:	.NOTMAIN
 
 .if defined(LIB_CXX) || defined(SHLIB_CXX)
 _LD=	${CXX}
@@ -109,6 +109,16 @@ LDFLAGS.bfd+= -Wl,-znoexecstack
 CFLAGS+=  -mbranch-protection=standard
 .if ${LINKER_FEATURES:Mbti-report} && defined(BTI_REPORT_ERROR)
 LDFLAGS+= -Wl,-zbti-report=error
+.endif
+.endif
+
+.if ${MACHINE_ABI:Mpurecap}
+.if ${OPT_CHERI_TGOT_TLS} == "yes"
+CFLAGS+=	-cheri-tgot-tls
+.elif ${OPT_CHERI_TGOT_TLS} == "compat"
+CFLAGS+=	-cheri-tgot-tls=compat
+.elif ${OPT_CHERI_TGOT_TLS} == "no"
+CFLAGS+=	-no-cheri-tgot-tls
 .endif
 .endif
 

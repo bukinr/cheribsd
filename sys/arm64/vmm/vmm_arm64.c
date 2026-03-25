@@ -60,6 +60,8 @@
 
 #include <cheri/cheri.h>
 
+#include <dev/vmm/vmm_mem.h>
+
 #include "mmu.h"
 #include "arm64.h"
 #include "hyp.h"
@@ -366,7 +368,7 @@ vmmops_modinit(int ipinum)
 		/* We need an physical identity mapping for when we activate the MMU */
 		hyp_code_base = vmm_base = vtophys(&vmm_hyp_code);
 		rv = vmmpmap_enter(vmm_base, hyp_code_len, vmm_base,
-		    VM_PROT_READ | VM_PROT_READ_CAP | VM_PROT_EXECUTE);
+		    VM_PROT_READ | VM_PROT_CAP | VM_PROT_EXECUTE);
 		MPASS(rv);
 
 		next_hyp_va = roundup2(vmm_base + hyp_code_len, L2_SIZE);
@@ -389,8 +391,7 @@ vmmops_modinit(int ipinum)
 			for (i = 0; i < VMM_STACK_PAGES; i++) {
 				rv = vmmpmap_enter(stack_hyp_va[cpu] + ptoa(i),
 				    PAGE_SIZE, vtophys(stack[cpu] + ptoa(i)),
-				    VM_PROT_READ | VM_PROT_READ_CAP |
-				    VM_PROT_WRITE | VM_PROT_WRITE_CAP);
+				    VM_PROT_READ | VM_PROT_WRITE | VM_PROT_CAP);
 				MPASS(rv);
 			}
 			next_hyp_va += L2_SIZE;
@@ -467,6 +468,8 @@ vmmops_modinit(int ipinum)
 #ifdef SMP
 	el2_regs.vtcr_el2 |= VTCR_EL2_SH0_IS;
 #endif
+	if (pmap_vs_enabled())
+		el2_regs.vtcr_el2 |= VTCR_EL2_VS;
 #if __has_feature(capabilities)
 	/*
 	 * Enable the use of SC/LC/CDBM in stage 2 translation descriptors.
@@ -605,8 +608,7 @@ vmmops_init(struct vm *vm, pmap_t pmap)
 
 	if (!in_vhe())
 		hyp->el2_addr = el2_map_enter((vm_offset_t)hyp, size,
-		    VM_PROT_READ | VM_PROT_WRITE |
-		    VM_PROT_READ_CAP | VM_PROT_WRITE_CAP);
+		    VM_PROT_READ | VM_PROT_WRITE | VM_PROT_CAP);
 
 	return (hyp);
 }
@@ -636,8 +638,7 @@ vmmops_vcpu_init(void *vmi, struct vcpu *vcpu1, int vcpuid)
 
 	if (!in_vhe())
 		hypctx->el2_addr = el2_map_enter((vm_offset_t)hypctx, size,
-		    VM_PROT_READ | VM_PROT_WRITE |
-		    VM_PROT_READ_CAP | VM_PROT_WRITE_CAP);
+		    VM_PROT_READ | VM_PROT_WRITE | VM_PROT_CAP);
 
 	return (hypctx);
 }

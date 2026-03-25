@@ -45,38 +45,36 @@
  */
 void * __capability	_cheri_capability_build_user_code(struct thread *td,
 			    uint32_t perms, ptraddr_t basep, size_t length,
-			    off_t off, const char* func, int line);
+			    ptraddr_t addr, const char* func, int line);
 void * __capability	_cheri_capability_build_user_data(uint32_t perms,
-			    ptraddr_t basep, size_t length, off_t off,
+			    ptraddr_t basep, size_t length, ptraddr_t addr,
 			    const char* func, int line, bool exact);
 void * __capability	_cheri_capability_build_user_rwx(uint32_t perms,
-			    ptraddr_t basep, size_t length, off_t off,
+			    ptraddr_t basep, size_t length, ptraddr_t addr,
 			    const char* func, int line, bool exact);
 void * __capability	_cheri_capability_build_user_rwx_unchecked(
 			    uint32_t perms, ptraddr_t basep, size_t length,
-			    off_t off, const char* func, int line, bool exact);
-#define cheri_capability_build_user_code(td, perms, basep, length, off)	\
-	_cheri_capability_build_user_code(td, perms, basep, length, off,\
+			    ptraddr_t addr, const char* func, int line,
+			    bool exact);
+#define cheri_capability_build_user_code(td, perms, basep, length, addr) \
+	_cheri_capability_build_user_code(td, perms, basep, length, addr, \
 	    __func__, __LINE__)
-#define cheri_capability_build_user_data(perms, basep, length, off)	\
-	_cheri_capability_build_user_data(perms, basep, length, off,	\
+#define cheri_capability_build_user_data(perms, basep, length, addr)	\
+	_cheri_capability_build_user_data(perms, basep, length, addr,	\
 	    __func__, __LINE__, true)
-#define cheri_capability_build_inexact_user_data(perms, basep, length, off) \
-	_cheri_capability_build_user_data(perms, basep, length, off,	\
+#define cheri_capability_build_inexact_user_data(perms, basep, length, addr) \
+	_cheri_capability_build_user_data(perms, basep, length, addr,	\
 	    __func__, __LINE__, false)
-#define cheri_capability_build_user_rwx(perms, basep, length, off)	\
-	_cheri_capability_build_user_rwx(perms, basep, length, off,	\
+#define cheri_capability_build_user_rwx(perms, basep, length, addr)	\
+	_cheri_capability_build_user_rwx(perms, basep, length, addr,	\
 	    __func__, __LINE__, true)
-#define cheri_capability_build_user_rwx_unchecked(perms, basep, length, off) \
-	_cheri_capability_build_user_rwx_unchecked(perms, basep, length, off, \
+#define cheri_capability_build_user_rwx_unchecked(perms, basep, length, addr) \
+	_cheri_capability_build_user_rwx_unchecked(perms, basep, length, addr, \
 	    __func__, __LINE__, true)
 
 /*
  * Global capabilities used to construct other capabilities.
  */
-
-/* Root of all unsealed userspace capabilities. */
-extern void * __capability userspace_root_cap;
 
 /* Root of all sealed userspace capabilities. */
 extern void * __capability userspace_root_sealcap;
@@ -107,6 +105,17 @@ extern void * __capability vmm_gpa_root_cap;
 extern void * __capability vmm_el2_root_cap;
 #endif
 #endif
+
+/*
+ * Initialize root caps.
+ */
+void userspace_root_cap_init(void * __capability);
+
+/*
+ * Construct capabilities in the sysvec.
+ */
+struct sysentvec;
+void cheri_sysvec_init(struct sysentvec *sv);
 
 /*
  * Functions to create capabilities used in exec.
@@ -164,7 +173,7 @@ typedef void (cap_relocs_cb)(void *arg, bool function, bool constant,
 
 int	init_linker_file_cap_relocs(const void *start_relocs,
 	    const void *stop_relocs, void *data_cap, ptraddr_t base_addr,
-	    cap_relocs_cb *cb, void *cb_arg);
+	    bool can_set_code_bounds, cap_relocs_cb *cb, void *cb_arg);
 #endif
 #endif /* !_KERNEL */
 

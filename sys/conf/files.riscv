@@ -20,6 +20,7 @@ dev/usb/controller/generic_usb_if.m		optional ohci fdt
 dev/usb/controller/generic_xhci.c		optional xhci
 dev/usb/controller/generic_xhci_fdt.c		optional xhci fdt
 dev/vmm/vmm_dev.c		optional	vmm
+dev/vmm/vmm_mem.c		optional	vmm
 dev/vmm/vmm_stat.c		optional	vmm
 dev/xilinx/axi_quad_spi.c	optional	xilinx_spi
 dev/xilinx/axidma.c		optional	axidma xdma
@@ -29,6 +30,7 @@ kern/msi_if.m			standard
 kern/pic_if.m			standard
 kern/subr_devmap.c		standard
 kern/subr_dummy_vdso_tc.c	standard
+kern/subr_efi_map.c		standard
 kern/subr_intr.c		standard
 kern/subr_physmem.c		standard
 cheri/cheri_cap_relocs.c	optional cheri_purecap_kernel \
@@ -41,6 +43,7 @@ libkern/memset_c.c		optional	cpu_cheri !cheri_purecap_kernel
 libkern/strcmp.c		standard
 libkern/strlen.c		standard
 libkern/strncmp.c		standard
+riscv/pmu/pmu.c			optional	hwc
 riscv/cheri/cheri_debug.c	optional	cpu_cheri ddb
 riscv/cheri/cheri_exception.c	optional	cpu_cheri
 riscv/cheri/cheri_machdep.c	optional	cpu_cheri
@@ -51,6 +54,7 @@ riscv/riscv/bus_space_asm.S	standard
 riscv/riscv/busdma_bounce.c	standard
 riscv/riscv/busdma_machdep.c	standard
 riscv/riscv/cache.c		standard
+riscv/riscv/cbo.c		optional	!cheri_purecap_kernel
 riscv/riscv/clock.c		standard
 riscv/riscv/copyinout.S		standard
 riscv/riscv/cpufunc_asm.S	standard

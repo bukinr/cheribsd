@@ -138,7 +138,8 @@ cap_covers_pages(const void * __capability cap, size_t size)
 	size += pageoff;
 	size = (vm_size_t)round_page(size);
 
-	return (__CAP_CHECK(__DECONST_CAP(void * __capability, addr), size));
+	/* Individual syscalls check perms */
+	return (cheri_can_access(addr, 0, size));
 }
 
 static uintcap_t
@@ -208,7 +209,7 @@ mmap_retcap(struct thread *td, vm_pointer_t addr,
 	 * Set the permissions to PROT_MAX to allow a full
 	 * range of access subject to page permissions.
 	 */
-	perms = ~CHERI_PROT2PERM_MASK | vm_map_prot2perms(cap_prot);
+	perms = vm_prot2perms(cheri_perms_get(newcap), cap_prot);
 	newcap = cheri_perms_and(newcap, perms);
 
 	return (newcap);
@@ -237,6 +238,7 @@ vm_wxcheck(struct proc *p, char *call)
 static inline int
 vm_prot2vmprot(vm_prot_t *prot, const char *func, const char *protname)
 {
+#if __has_feature(capabilities)
 	vm_prot_t vm_prot;
 
 	KASSERT((*prot & ~_PROT_ALL) == 0, ("invalid bits in %s", protname));
@@ -251,15 +253,13 @@ vm_prot2vmprot(vm_prot_t *prot, const char *func, const char *protname)
 
 	vm_prot = (*prot & ~_PROT_CAP);
 	if ((*prot & PROT_CAP) != 0) {
-		if ((*prot & PROT_READ) != 0)
-			vm_prot |= VM_PROT_READ_CAP;
-		if ((*prot & PROT_WRITE) != 0)
-			vm_prot |= VM_PROT_WRITE_CAP;
+		vm_prot |= VM_PROT_CAP;
 	}
 	if ((*prot & PROT_NO_CAP) != 0)
 		vm_prot |= VM_PROT_NO_IMPLY_CAP;
 
 	*prot = vm_prot;
+#endif
 	return (0);
 }
 
@@ -356,7 +356,8 @@ sys_mmap(struct thread *td, struct mmap_args *uap)
 		if (flags & MAP_FIXED)
 			flags |= MAP_EXCL;
 
-		source_cap = userspace_root_cap;
+		source_cap = (void * __capability)vm_map_rootcap(
+		    &td->td_proc->p_vmspace->vm_map);
 	}
 	KASSERT(cheri_tag_get(source_cap),
 	    ("td->td_cheri_mmap_cap is untagged!"));
@@ -371,13 +372,13 @@ sys_mmap(struct thread *td, struct mmap_args *uap)
 	    cheri_address_get(source_cap) + cheri_length_get(source_cap))) {
 		SYSERRCAUSE("MAP_FIXED and too little space in "
 		    "capablity (0x%zx < 0x%zx)",
-		    cheri_length_get(source_cap) - cheri_offset_get(source_cap),
+		    cheri_bytes_remaining(source_cap),
 		    roundup2(uap->len, PAGE_SIZE));
 		return (EPROT);
 	}
 
 	perms = cheri_perms_get(source_cap);
-	reqperms = vm_map_prot2perms(uap->prot);
+	reqperms = vm_prot2perms(0, uap->prot);
 #ifdef CHERI_PERM_EXECUTIVE
 	if ((flags & MAP_FIXED) && (perms & CHERI_PERM_EXECUTIVE) == 0)
 		/*
@@ -464,6 +465,7 @@ kern_mmap(struct thread *td, const struct mmap_req *mrp)
 	prot = PROT_EXTRACT(mrp->mr_prot);
 	/* Ensure max_prot is a superset of prot if non-zero */
 	if (max_prot != 0) {
+#if __has_feature(capabilities)
 		/*
 		 * If prot contains explicit capability permissions then
 		 * max_prot must as well.  Add PROT_NO_CAP to both to allow
@@ -477,6 +479,7 @@ kern_mmap(struct thread *td, const struct mmap_req *mrp)
 			prot |= PROT_NO_CAP;
 			max_prot |= PROT_NO_CAP;
 		}
+#endif
 		if ((max_prot & prot) != prot) {
 			SYSERRCAUSE("%s: requested page permissions exceed "
 			    "requested maximum", __func__);
@@ -567,7 +570,11 @@ kern_mmap(struct thread *td, const struct mmap_req *mrp)
 		return (EINVAL);
 	}
 	if ((flags & MAP_GUARD) != 0 &&
-	    ((prot != PROT_NONE && prot != PROT_NO_CAP) || fd != -1 ||
+	    ((prot != PROT_NONE
+#if __has_feature(capabilities)
+	      && prot != PROT_NO_CAP
+#endif
+	     ) || fd != -1 ||
 	    pos != 0 || (flags & ~(MAP_FIXED | MAP_GUARD | MAP_EXCL |
 	    MAP_RESERVATION_CREATE |
 	    MAP_32BIT | MAP_ALIGNMENT_MASK)) != 0)) {
@@ -725,8 +732,10 @@ kern_mmap(struct thread *td, const struct mmap_req *mrp)
 			error = EINVAL;
 			goto done;
 		}
-		if ((cap_prot & (VM_PROT_READ_CAP | VM_PROT_WRITE_CAP)) != 0)
+#if __has_feature(capabilities)
+		if ((cap_prot & VM_PROT_CAP) != 0)
 			cap_maxprot = VM_PROT_ADD_CAP(cap_maxprot);
+#endif
 		if ((cap_prot & cap_maxprot) != cap_prot) {
 			SYSERRCAUSE("%s: unable to map file with "
 			    "requested permissions", __func__);
@@ -1057,11 +1066,13 @@ kern_mprotect(struct thread *td, uintptr_t addr0, size_t size, int userprot,
 
 	flags |= VM_MAP_PROTECT_SET_PROT | VM_MAP_PROTECT_KEEP_CAP;
 	if (max_prot != 0) {
+#if __has_feature(capabilities)
 		/* see comment in kern_mmap() */
 		if ((prot & _PROT_CAP) != 0 || (max_prot & _PROT_CAP) != 0) {
 			prot |= PROT_NO_CAP;
 			max_prot |= PROT_NO_CAP;
 		}
+#endif
 		if ((max_prot & prot) != prot)
 			return (ENOTSUP);
 		flags |= VM_MAP_PROTECT_SET_MAXPROT;
@@ -1906,9 +1917,6 @@ vm_mmap_cdev(struct thread *td, vm_size_t objsize, vm_prot_t *protp,
 	    td->td_ucred);
 	if (obj == NULL)
 		return (EINVAL);
-	VM_OBJECT_WLOCK(obj);
-	vm_object_set_flag(obj, OBJ_CDEVH);
-	VM_OBJECT_WUNLOCK(obj);
 	*objp = obj;
 	*flagsp = flags;
 	return (0);

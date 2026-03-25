@@ -169,6 +169,16 @@ CFLAGS+=	-mabi=aapcs
 .endif
 .endif
 
+.if ${MACHINE_ABI:Mpurecap}
+.if ${OPT_CHERI_TGOT_TLS} == "yes"
+CFLAGS+=	-cheri-tgot-tls
+.elif ${OPT_CHERI_TGOT_TLS} == "compat"
+CFLAGS+=	-cheri-tgot-tls=compat
+.elif ${OPT_CHERI_TGOT_TLS} == "no"
+CFLAGS+=	-no-cheri-tgot-tls
+.endif
+.endif
+
 #
 # For RISC-V we specify the soft-float ABI (lp64) to avoid the use of floating
 # point registers within the kernel. However, we include the F and D extensions
@@ -182,8 +192,10 @@ CFLAGS+=	-mabi=aapcs
 #
 .if ${MACHINE_CPUARCH} == "riscv"
 RISCV_MARCH=	rv64imafdch
-.if ${MACHINE_CPU:Mcheri}
+.if ${MACHINE_CPU:Mxcheri}
 RISCV_MARCH:=	${RISCV_MARCH}xcheri
+.elif ${MACHINE_CPU:Mrvy}
+RISCV_MARCH:=	${RISCV_MARCH}zcherihybrid_zcherilevels
 .endif
 
 RISCV_ABI=	lp64
@@ -260,7 +272,7 @@ CFLAGS+=	-ffreestanding
 CFLAGS+=	-fwrapv
 
 #
-# GCC SSP support
+# Stack Smashing Protection (SSP) support
 #
 .if ${MK_SSP} != "no" && !${MACHINE_ABI:Mpurecap}
 CFLAGS+=	-fstack-protector
@@ -415,7 +427,7 @@ PHONY_NOTMAIN = afterdepend afterinstall all beforedepend beforeinstall \
 .PHONY: ${PHONY_NOTMAIN}
 .NOTMAIN: ${PHONY_NOTMAIN}
 
-CSTD?=		gnu99
+CSTD?=		gnu17
 
 # c99/gnu99 is the minimum C standard version supported for kernel build
 .if ${CSTD} == "k&r" || ${CSTD} == "c89" || ${CSTD} == "c90" || \

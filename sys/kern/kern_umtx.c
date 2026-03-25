@@ -472,9 +472,16 @@ umtxq_unbusy(struct umtx_key *key)
 }
 
 void
+umtxq_busy_unlocked(struct umtx_key *key)
+{
+	umtxq_lock(key);
+	umtxq_busy(key);
+	umtxq_unlock(key);
+}
+
+void
 umtxq_unbusy_unlocked(struct umtx_key *key)
 {
-
 	umtxq_lock(key);
 	umtxq_unbusy(key);
 	umtxq_unlock(key);
@@ -894,13 +901,15 @@ umtx_key_get(const void * __capability addr, int type, int share,
 	vm_prot_t prot;
 	boolean_t wired;
 
+#if __has_feature(capabilities)
 	/*
 	 * Make sure the capability point to something valid.  This
 	 * ensures that capabilities from non-CheriABI binaries are
 	 * inside the bounds of the correct DDC.
 	 */
-	if (!__CAP_CHECK(__DECONST_CAP(void * __capability, addr), 0))
+	if (!cheri_can_access(addr, CHERI_PERM_LOAD, 1))
 		return (EPROT);
+#endif
 	key->type = type;
 	if (share == THREAD_SHARE) {
 		key->shared = 0;
@@ -2416,9 +2425,7 @@ do_lock_pi(struct thread *td, struct umutex * __capability m, uint32_t flags,
 		if (error != 0)
 			break;
 
-		umtxq_lock(&uq->uq_key);
-		umtxq_busy(&uq->uq_key);
-		umtxq_unlock(&uq->uq_key);
+		umtxq_busy_unlocked(&uq->uq_key);
 
 		/*
 		 * Set the contested bit so that a release in user space
@@ -2585,9 +2592,7 @@ do_lock_pp(struct thread *td, struct umutex * __capability m, uint32_t flags,
 	su = (priv_check(td, PRIV_SCHED_RTPRIO) == 0);
 	for (;;) {
 		old_inherited_pri = uq->uq_inherited_pri;
-		umtxq_lock(&uq->uq_key);
-		umtxq_busy(&uq->uq_key);
-		umtxq_unlock(&uq->uq_key);
+		umtxq_busy_unlocked(&uq->uq_key);
 
 		rv = fueword32(&m->m_ceilings[0], &ceiling);
 		if (rv == -1) {
@@ -2661,6 +2666,10 @@ do_lock_pp(struct thread *td, struct umutex * __capability m, uint32_t flags,
 			}
 		} else if (owner == UMUTEX_RB_NOTRECOV) {
 			error = ENOTRECOVERABLE;
+		} else if (owner == UMUTEX_CONTESTED) {
+			/* Spurious failure, retry. */
+			umtxq_unbusy_unlocked(&uq->uq_key);
+			continue;
 		}
 
 		if (try != 0)
@@ -2769,9 +2778,8 @@ do_unlock_pp(struct thread *td, struct umutex * __capability m, uint32_t flags,
 	    TYPE_PP_ROBUST_UMUTEX : TYPE_PP_UMUTEX, GET_SHARE(flags),
 	    &key)) != 0)
 		return (error);
-	umtxq_lock(&key);
-	umtxq_busy(&key);
-	umtxq_unlock(&key);
+	umtxq_busy_unlocked(&key);
+
 	/*
 	 * For priority protected mutex, always set unlocked state
 	 * to UMUTEX_CONTESTED, so that userland always enters kernel
@@ -2834,9 +2842,7 @@ do_set_ceiling(struct thread *td, struct umutex * __capability m,
 	    &uq->uq_key)) != 0)
 		return (error);
 	for (;;) {
-		umtxq_lock(&uq->uq_key);
-		umtxq_busy(&uq->uq_key);
-		umtxq_unlock(&uq->uq_key);
+		umtxq_busy_unlocked(&uq->uq_key);
 
 		rv = fueword32(&m->m_ceilings[0], &save_ceiling);
 		if (rv == -1) {
@@ -2871,6 +2877,10 @@ do_set_ceiling(struct thread *td, struct umutex * __capability m,
 		} else if (owner == UMUTEX_RB_NOTRECOV) {
 			error = ENOTRECOVERABLE;
 			break;
+		} else if (owner == UMUTEX_CONTESTED) {
+			/* Spurious failure, retry. */
+			umtxq_unbusy_unlocked(&uq->uq_key);
+			continue;
 		}
 
 		/*
@@ -3186,9 +3196,7 @@ do_rw_rdlock(struct thread *td, struct urwlock * __capability rwlock,
 			break;
 
 		/* grab monitor lock */
-		umtxq_lock(&uq->uq_key);
-		umtxq_busy(&uq->uq_key);
-		umtxq_unlock(&uq->uq_key);
+		umtxq_busy_unlocked(&uq->uq_key);
 
 		/*
 		 * re-read the state, in case it changed between the try-lock above
@@ -3380,9 +3388,7 @@ do_rw_wrlock(struct thread *td, struct urwlock * __capability rwlock,
 		}
 
 		/* grab monitor lock */
-		umtxq_lock(&uq->uq_key);
-		umtxq_busy(&uq->uq_key);
-		umtxq_unlock(&uq->uq_key);
+		umtxq_busy_unlocked(&uq->uq_key);
 
 		/*
 		 * Re-read the state, in case it changed between the
@@ -3837,7 +3843,7 @@ do_sem2_wake(struct thread *td, struct _usem2 * __capability sem)
 				rv = casueword32(&sem->_count, count, &count,
 				    count & ~USEM_HAS_WAITERS);
 				if (rv == 1) {
-					rv = thread_check_susp(td, true);
+					rv = thread_check_susp(td, false);
 					if (rv != 0)
 						break;
 				}

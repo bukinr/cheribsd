@@ -53,6 +53,9 @@
 #include <net80211/ieee80211_radiotap.h>
 #include <net80211/ieee80211_ratectl.h>
 #include <net80211/ieee80211_regdomain.h>
+#ifdef	IEEE80211_SUPPORT_SUPERG
+#include <net80211/ieee80211_superg.h>
+#endif
 #include <netinet/if_ether.h>
 #include <netinet/in.h>
 #include <netinet/in_systm.h>
@@ -2155,7 +2158,7 @@ mtw_iter_func(void *arg, struct ieee80211_node *ni)
 	uint32_t sta[3];
 	uint16_t(*wstat)[3];
 	int error, ridx;
-
+	uint8_t txrate = 0;
 
 	/* Check for special case */
 	if (sc->rvp_cnt <= 1 && vap->iv_opmode == IEEE80211_M_STA &&
@@ -2208,11 +2211,13 @@ mtw_iter_func(void *arg, struct ieee80211_node *ni)
 
 	ieee80211_ratectl_tx_update(vap, txs);
 	ieee80211_ratectl_rate(ni, NULL, 0);
+	txrate = ieee80211_node_get_txrate_dot11rate(ni);
+
 	/* XXX TODO: methodize with MCS rates */
 	for (ridx = 0; ridx < MTW_RIDX_MAX; ridx++) {
 		MTW_DPRINTF(sc, MTW_DEBUG_RATE, "ni_txrate=0x%x\n",
-			     ni->ni_txrate);
-		if (rt2860_rates[ridx].rate == ni->ni_txrate) {
+			     txrate);
+		if (rt2860_rates[ridx].rate == txrate) {
 			break;
 		}
 	}
@@ -2221,7 +2226,7 @@ fail:
 	MTW_UNLOCK(sc);
 
 	MTW_DPRINTF(sc, MTW_DEBUG_RATE, "rate=%d, ridx=%d\n",
-		    ni->ni_txrate, rn->amrr_ridx);
+		    txrate, rn->amrr_ridx);
 }
 
 static void
@@ -2799,10 +2804,10 @@ mtw_bulk_tx_callbackN(struct usb_xfer *xfer, usb_error_t error, u_int index)
 #ifdef IEEE80211_SUPPORT_SUPERG
 	/* XXX TODO: make this deferred rather than unlock/relock */
 	/* XXX TODO: should only do the QoS AC this belongs to */
-	if (pq->tx_nfree >= RUN_TX_RING_COUNT) {
-		RUN_UNLOCK(sc);
+	if (pq->tx_nfree >= MTW_TX_RING_COUNT) {
+		MTW_UNLOCK(sc);
 		ieee80211_ff_flush_all(ic);
-		RUN_LOCK(sc);
+		MTW_LOCK(sc);
 	}
 #endif
 }
@@ -4384,7 +4389,7 @@ mtw_mcu_radio(struct mtw_softc *sc, int func, uint32_t val)
 	cmd.r2 = htole32(val);
 	cmd.r3 = 0;
 	cmd.r4 = 0;
-	return (mtw_mcu_cmd(sc, 8, &val, sizeof(struct mtw_mcu_cmd_16)));
+	return (mtw_mcu_cmd(sc, 20, &cmd, sizeof(struct mtw_mcu_cmd_16)));
 }
 static void
 mtw_init_locked(struct mtw_softc *sc)

@@ -47,6 +47,8 @@
 #include <sys/socket.h>
 #include <sys/sysctl.h>
 
+#include <crypto/siphash/siphash.h>
+
 #include <net/if.h>
 #include <net/if_var.h>
 #include <net/vnet.h>
@@ -55,11 +57,11 @@
 
 #ifdef INET
 #include <netinet/in_var.h>
-#endif
+#endif /* INET */
 
 #ifdef INET6
 #include <netinet6/in6_var.h>
-#endif
+#endif /* INET6 */
 
 
 /*
@@ -71,73 +73,62 @@ VNET_DEFINE_STATIC(int, pf_rdr_srcport_rewrite_tries) = 16;
 
 #define DPFPRINTF(n, x)	if (V_pf_status.debug >= (n)) printf x
 
-static void		 pf_hash(struct pf_addr *, struct pf_addr *,
+static uint64_t		 pf_hash(struct pf_addr *, struct pf_addr *,
 			    struct pf_poolhashkey *, sa_family_t);
-static struct pf_krule	*pf_match_translation(struct pf_pdesc *,
+struct pf_krule		*pf_match_translation(struct pf_pdesc *,
 			    int, struct pf_kanchor_stackframe *);
-static int pf_get_sport(struct pf_pdesc *, struct pf_krule *,
-    struct pf_addr *, uint16_t *, uint16_t, uint16_t, struct pf_ksrc_node **,
-    struct pf_srchash **, struct pf_kpool *, struct pf_udp_mapping **);
+static int		 pf_get_sport(struct pf_pdesc *, struct pf_krule *,
+			    struct pf_addr *, uint16_t *, uint16_t, uint16_t,
+			    struct pf_ksrc_node **, struct pf_srchash **,
+			    struct pf_kpool *, struct pf_udp_mapping **,
+			    pf_sn_types_t);
 static bool		 pf_islinklocal(const sa_family_t, const struct pf_addr *);
 
-#define mix(a,b,c) \
-	do {					\
-		a -= b; a -= c; a ^= (c >> 13);	\
-		b -= c; b -= a; b ^= (a << 8);	\
-		c -= a; c -= b; c ^= (b >> 13);	\
-		a -= b; a -= c; a ^= (c >> 12);	\
-		b -= c; b -= a; b ^= (a << 16);	\
-		c -= a; c -= b; c ^= (b >> 5);	\
-		a -= b; a -= c; a ^= (c >> 3);	\
-		b -= c; b -= a; b ^= (a << 10);	\
-		c -= a; c -= b; c ^= (b >> 15);	\
-	} while (0)
-
-/*
- * hash function based on bridge_hash in if_bridge.c
- */
-static void
+static uint64_t
 pf_hash(struct pf_addr *inaddr, struct pf_addr *hash,
     struct pf_poolhashkey *key, sa_family_t af)
 {
-	u_int32_t	a = 0x9e3779b9, b = 0x9e3779b9, c = key->key32[0];
+	SIPHASH_CTX	 ctx;
+#ifdef INET6
+	union {
+		uint64_t hash64;
+		uint32_t hash32[2];
+	} h;
+#endif /* INET6 */
+	uint64_t	 res = 0;
+
+	_Static_assert(sizeof(*key) >= SIPHASH_KEY_LENGTH, "");
 
 	switch (af) {
 #ifdef INET
 	case AF_INET:
-		a += inaddr->addr32[0];
-		b += key->key32[1];
-		mix(a, b, c);
-		hash->addr32[0] = c + key->key32[2];
+		res = SipHash24(&ctx, (const uint8_t *)key,
+		    &inaddr->addr32[0], sizeof(inaddr->addr32[0]));
+		hash->addr32[0] = res;
 		break;
 #endif /* INET */
 #ifdef INET6
 	case AF_INET6:
-		a += inaddr->addr32[0];
-		b += inaddr->addr32[2];
-		mix(a, b, c);
-		hash->addr32[0] = c;
-		a += inaddr->addr32[1];
-		b += inaddr->addr32[3];
-		c += key->key32[1];
-		mix(a, b, c);
-		hash->addr32[1] = c;
-		a += inaddr->addr32[2];
-		b += inaddr->addr32[1];
-		c += key->key32[2];
-		mix(a, b, c);
-		hash->addr32[2] = c;
-		a += inaddr->addr32[3];
-		b += inaddr->addr32[0];
-		c += key->key32[3];
-		mix(a, b, c);
-		hash->addr32[3] = c;
+		res = SipHash24(&ctx, (const uint8_t *)key,
+		    &inaddr->addr32[0], 4 * sizeof(inaddr->addr32[0]));
+		h.hash64 = res;
+		hash->addr32[0] = h.hash32[0];
+		hash->addr32[1] = h.hash32[1];
+		/*
+		 * siphash isn't big enough, but flipping it around is
+		 * good enough here.
+		 */
+		hash->addr32[2] = ~h.hash32[1];
+		hash->addr32[3] = ~h.hash32[0];
 		break;
 #endif /* INET6 */
+	default:
+		unhandled_af(af);
 	}
+	return (res);
 }
 
-static struct pf_krule *
+struct pf_krule *
 pf_match_translation(struct pf_pdesc *pd,
     int rs_num, struct pf_kanchor_stackframe *anchor_stack)
 {
@@ -211,7 +202,7 @@ pf_match_translation(struct pf_pdesc *pd,
 				break;
 			} else
 				pf_step_into_anchor(anchor_stack, &asd,
-				    &ruleset, rs_num, &r, NULL, NULL);
+				    &ruleset, rs_num, &r, NULL);
 		}
 		if (r == NULL)
 			pf_step_out_of_anchor(anchor_stack, &asd, &ruleset,
@@ -231,10 +222,13 @@ pf_get_sport(struct pf_pdesc *pd, struct pf_krule *r,
     struct pf_addr *naddr, uint16_t *nport, uint16_t low,
     uint16_t high, struct pf_ksrc_node **sn,
     struct pf_srchash **sh, struct pf_kpool *rpool,
-    struct pf_udp_mapping **udp_mapping)
+    struct pf_udp_mapping **udp_mapping, pf_sn_types_t sn_type)
 {
 	struct pf_state_key_cmp	key;
 	struct pf_addr		init_addr;
+	int			dir = (pd->dir == PF_IN) ? PF_OUT : PF_IN;
+	int			sidx = pd->sidx;
+	int			didx = pd->didx;
 
 	bzero(&init_addr, sizeof(init_addr));
 
@@ -262,7 +256,8 @@ pf_get_sport(struct pf_pdesc *pd, struct pf_krule *r,
 				/* Try to find a src_node as per pf_map_addr(). */
 				if (*sn == NULL && rpool->opts & PF_POOL_STICKYADDR &&
 				    (rpool->opts & PF_POOL_TYPEMASK) != PF_POOL_NONE)
-					*sn = pf_find_src_node(&pd->nsaddr, r, pd->af, sh, false);
+					*sn = pf_find_src_node(&pd->nsaddr, r,
+					    pd->af, sh, sn_type, false);
 				if (*sn != NULL)
 					PF_SRC_NODE_UNLOCK(*sn);
 				return (0);
@@ -276,7 +271,7 @@ pf_get_sport(struct pf_pdesc *pd, struct pf_krule *r,
 	}
 
 	if (pf_map_addr_sn(pd->naf, r, &pd->nsaddr, naddr, NULL, &init_addr,
-	    sn, sh, rpool))
+	    sn, sh, rpool, sn_type))
 		goto failed;
 
 	if (pd->proto == IPPROTO_ICMP) {
@@ -299,11 +294,12 @@ pf_get_sport(struct pf_pdesc *pd, struct pf_krule *r,
 	bzero(&key, sizeof(key));
 	key.af = pd->naf;
 	key.proto = pd->proto;
-	key.port[0] = pd->ndport;
-	PF_ACPY(&key.addr[0], &pd->ndaddr, key.af);
 
 	do {
-		PF_ACPY(&key.addr[1], naddr, key.af);
+		PF_ACPY(&key.addr[didx], &pd->ndaddr, key.af);
+		PF_ACPY(&key.addr[sidx], naddr, key.af);
+		key.port[didx] = pd->ndport;
+
 		if (udp_mapping && *udp_mapping)
 			PF_ACPY(&(*udp_mapping)->endpoints[1].addr, naddr, pd->af);
 
@@ -312,8 +308,8 @@ pf_get_sport(struct pf_pdesc *pd, struct pf_krule *r,
 		 * similar 2 portloop in in_pcbbind
 		 */
 		if (pd->proto == IPPROTO_SCTP) {
-			key.port[1] = pd->nsport;
-			if (!pf_find_state_all_exists(&key, PF_IN)) {
+			key.port[sidx] = pd->nsport;
+			if (!pf_find_state_all_exists(&key, dir)) {
 				*nport = pd->nsport;
 				return (0);
 			} else {
@@ -325,14 +321,14 @@ pf_get_sport(struct pf_pdesc *pd, struct pf_krule *r,
 			 * XXX bug: icmp states don't use the id on both sides.
 			 * (traceroute -I through nat)
 			 */
-			key.port[1] = pd->nsport;
-			if (!pf_find_state_all_exists(&key, PF_IN)) {
+			key.port[sidx] = pd->nsport;
+			if (!pf_find_state_all_exists(&key, dir)) {
 				*nport = pd->nsport;
 				return (0);
 			}
 		} else if (low == high) {
-			key.port[1] = htons(low);
-			if (!pf_find_state_all_exists(&key, PF_IN)) {
+			key.port[sidx] = htons(low);
+			if (!pf_find_state_all_exists(&key, dir)) {
 				if (udp_mapping && *udp_mapping != NULL) {
 					(*udp_mapping)->endpoints[1].port = htons(low);
 					if (pf_udp_mapping_insert(*udp_mapping) == 0) {
@@ -358,14 +354,14 @@ pf_get_sport(struct pf_pdesc *pd, struct pf_krule *r,
 			/* low <= cut <= high */
 			for (tmp = cut; tmp <= high && tmp <= 0xffff; ++tmp) {
 				if (udp_mapping && *udp_mapping != NULL) {
-					(*udp_mapping)->endpoints[1].port = htons(tmp);
+					(*udp_mapping)->endpoints[sidx].port = htons(tmp);
 					if (pf_udp_mapping_insert(*udp_mapping) == 0) {
 						*nport = htons(tmp);
 						return (0);
 					}
 				} else {
-					key.port[1] = htons(tmp);
-					if (!pf_find_state_all_exists(&key, PF_IN)) {
+					key.port[sidx] = htons(tmp);
+					if (!pf_find_state_all_exists(&key, dir)) {
 						*nport = htons(tmp);
 						return (0);
 					}
@@ -382,8 +378,8 @@ pf_get_sport(struct pf_pdesc *pd, struct pf_krule *r,
 						return (0);
 					}
 				} else {
-					key.port[1] = htons(tmp);
-					if (!pf_find_state_all_exists(&key, PF_IN)) {
+					key.port[sidx] = htons(tmp);
+					if (!pf_find_state_all_exists(&key, dir)) {
 						*nport = htons(tmp);
 						return (0);
 					}
@@ -400,7 +396,7 @@ pf_get_sport(struct pf_pdesc *pd, struct pf_krule *r,
 			 */
 			(*sn) = NULL;
 			if (pf_map_addr_sn(pd->naf, r, &pd->nsaddr, naddr, NULL,
-			    &init_addr, sn, sh, rpool))
+			    &init_addr, sn, sh, rpool, sn_type))
 				return (1);
 			break;
 		case PF_POOL_NONE:
@@ -432,19 +428,19 @@ static int
 pf_get_mape_sport(struct pf_pdesc *pd, struct pf_krule *r,
     struct pf_addr *naddr, uint16_t *nport,
     struct pf_ksrc_node **sn, struct pf_srchash **sh,
-    struct pf_udp_mapping **udp_mapping)
+    struct pf_udp_mapping **udp_mapping, struct pf_kpool *rpool)
 {
 	uint16_t psmask, low, highmask;
 	uint16_t i, ahigh, cut;
 	int ashift, psidshift;
 
-	ashift = 16 - r->rdr.mape.offset;
-	psidshift = ashift - r->rdr.mape.psidlen;
-	psmask = r->rdr.mape.psid & ((1U << r->rdr.mape.psidlen) - 1);
+	ashift = 16 - rpool->mape.offset;
+	psidshift = ashift - rpool->mape.psidlen;
+	psmask = rpool->mape.psid & ((1U << rpool->mape.psidlen) - 1);
 	psmask = psmask << psidshift;
 	highmask = (1U << psidshift) - 1;
 
-	ahigh = (1U << r->rdr.mape.offset) - 1;
+	ahigh = (1U << rpool->mape.offset) - 1;
 	cut = arc4random() & ahigh;
 	if (cut == 0)
 		cut = 1;
@@ -452,15 +448,15 @@ pf_get_mape_sport(struct pf_pdesc *pd, struct pf_krule *r,
 	for (i = cut; i <= ahigh; i++) {
 		low = (i << ashift) | psmask;
 		if (!pf_get_sport(pd, r,
-		    naddr, nport, low, low | highmask, sn, sh, &r->rdr,
-		    udp_mapping))
+		    naddr, nport, low, low | highmask, sn, sh, rpool,
+		    udp_mapping, PF_SN_NAT))
 			return (0);
 	}
 	for (i = cut - 1; i > 0; i--) {
 		low = (i << ashift) | psmask;
 		if (!pf_get_sport(pd, r,
-		    naddr, nport, low, low | highmask, sn, sh, &r->rdr,
-		    udp_mapping))
+		    naddr, nport, low, low | highmask, sn, sh, rpool,
+		    udp_mapping, PF_SN_NAT))
 			return (0);
 	}
 	return (1);
@@ -473,6 +469,8 @@ pf_map_addr(sa_family_t af, struct pf_krule *r, struct pf_addr *saddr,
 {
 	u_short			 reason = PFRES_MATCH;
 	struct pf_addr		*raddr = NULL, *rmask = NULL;
+	uint64_t		 hashidx;
+	int			 cnt;
 
 	mtx_lock(&rpool->mtx);
 	/* Find the route using chosen algorithm. Store the found route
@@ -486,8 +484,7 @@ pf_map_addr(sa_family_t af, struct pf_krule *r, struct pf_addr *saddr,
 #ifdef INET
 		case AF_INET:
 			if (rpool->cur->addr.p.dyn->pfid_acnt4 < 1 &&
-			    (rpool->opts & PF_POOL_TYPEMASK) !=
-			    PF_POOL_ROUNDROBIN) {
+			    !PF_POOL_DYNTYPE(rpool->opts)) {
 				reason = PFRES_MAPFAILED;
 				goto done_pool_mtx;
 			}
@@ -498,8 +495,7 @@ pf_map_addr(sa_family_t af, struct pf_krule *r, struct pf_addr *saddr,
 #ifdef INET6
 		case AF_INET6:
 			if (rpool->cur->addr.p.dyn->pfid_acnt6 < 1 &&
-			    (rpool->opts & PF_POOL_TYPEMASK) !=
-			    PF_POOL_ROUNDROBIN) {
+			    !PF_POOL_DYNTYPE(rpool->opts)) {
 				reason = PFRES_MAPFAILED;
 				goto done_pool_mtx;
 			}
@@ -507,9 +503,11 @@ pf_map_addr(sa_family_t af, struct pf_krule *r, struct pf_addr *saddr,
 			rmask = &rpool->cur->addr.p.dyn->pfid_mask6;
 			break;
 #endif /* INET6 */
+		default:
+			unhandled_af(af);
 		}
 	} else if (rpool->cur->addr.type == PF_ADDR_TABLE) {
-		if ((rpool->opts & PF_POOL_TYPEMASK) != PF_POOL_ROUNDROBIN) {
+		if (!PF_POOL_DYNTYPE(rpool->opts)) {
 			reason = PFRES_MAPFAILED;
 			goto done_pool_mtx; /* unsupported */
 		}
@@ -526,33 +524,60 @@ pf_map_addr(sa_family_t af, struct pf_krule *r, struct pf_addr *saddr,
 		PF_POOLMASK(naddr, raddr, rmask, saddr, af);
 		break;
 	case PF_POOL_RANDOM:
-		if (init_addr != NULL && PF_AZERO(init_addr, af)) {
+		if (rpool->cur->addr.type == PF_ADDR_TABLE) {
+			cnt = rpool->cur->addr.p.tbl->pfrkt_cnt;
+			if (cnt == 0)
+				rpool->tblidx = 0;
+			else
+				rpool->tblidx = (int)arc4random_uniform(cnt);
+			memset(&rpool->counter, 0, sizeof(rpool->counter));
+			if (pfr_pool_get(rpool->cur->addr.p.tbl,
+			    &rpool->tblidx, &rpool->counter, af, NULL)) {
+				reason = PFRES_MAPFAILED;
+				goto done_pool_mtx; /* unsupported */
+			}
+			PF_ACPY(naddr, &rpool->counter, af);
+		} else if (rpool->cur->addr.type == PF_ADDR_DYNIFTL) {
+			cnt = rpool->cur->addr.p.dyn->pfid_kt->pfrkt_cnt;
+			if (cnt == 0)
+				rpool->tblidx = 0;
+			else
+				rpool->tblidx = (int)arc4random_uniform(cnt);
+			memset(&rpool->counter, 0, sizeof(rpool->counter));
+			if (pfr_pool_get(rpool->cur->addr.p.dyn->pfid_kt,
+			    &rpool->tblidx, &rpool->counter, af,
+			    pf_islinklocal)) {
+				reason = PFRES_MAPFAILED;
+				goto done_pool_mtx; /* unsupported */
+			}
+			PF_ACPY(naddr, &rpool->counter, af);
+		} else if (init_addr != NULL && PF_AZERO(init_addr, af)) {
 			switch (af) {
 #ifdef INET
 			case AF_INET:
-				rpool->counter.addr32[0] = htonl(arc4random());
+				rpool->counter.addr32[0] = arc4random();
 				break;
 #endif /* INET */
 #ifdef INET6
 			case AF_INET6:
 				if (rmask->addr32[3] != 0xffffffff)
 					rpool->counter.addr32[3] =
-					    htonl(arc4random());
+					    arc4random();
 				else
 					break;
 				if (rmask->addr32[2] != 0xffffffff)
 					rpool->counter.addr32[2] =
-					    htonl(arc4random());
+					    arc4random();
 				else
 					break;
 				if (rmask->addr32[1] != 0xffffffff)
 					rpool->counter.addr32[1] =
-					    htonl(arc4random());
+					    arc4random();
 				else
 					break;
 				if (rmask->addr32[0] != 0xffffffff)
 					rpool->counter.addr32[0] =
-					    htonl(arc4random());
+					    arc4random();
 				break;
 #endif /* INET6 */
 			}
@@ -568,8 +593,39 @@ pf_map_addr(sa_family_t af, struct pf_krule *r, struct pf_addr *saddr,
 	    {
 		unsigned char hash[16];
 
-		pf_hash(saddr, (struct pf_addr *)&hash, &rpool->key, af);
-		PF_POOLMASK(naddr, raddr, rmask, (struct pf_addr *)&hash, af);
+		hashidx =
+		    pf_hash(saddr, (struct pf_addr *)&hash, &rpool->key, af);
+		if (rpool->cur->addr.type == PF_ADDR_TABLE) {
+			cnt = rpool->cur->addr.p.tbl->pfrkt_cnt;
+			if (cnt == 0)
+				rpool->tblidx = 0;
+			else
+				rpool->tblidx = (int)(hashidx % cnt);
+			memset(&rpool->counter, 0, sizeof(rpool->counter));
+			if (pfr_pool_get(rpool->cur->addr.p.tbl,
+			    &rpool->tblidx, &rpool->counter, af, NULL)) {
+				reason = PFRES_MAPFAILED;
+				goto done_pool_mtx; /* unsupported */
+			}
+			PF_ACPY(naddr, &rpool->counter, af);
+		} else if (rpool->cur->addr.type == PF_ADDR_DYNIFTL) {
+			cnt = rpool->cur->addr.p.dyn->pfid_kt->pfrkt_cnt;
+			if (cnt == 0)
+				rpool->tblidx = 0;
+			else
+				rpool->tblidx = (int)(hashidx % cnt);
+			memset(&rpool->counter, 0, sizeof(rpool->counter));
+			if (pfr_pool_get(rpool->cur->addr.p.dyn->pfid_kt,
+			    &rpool->tblidx, &rpool->counter, af,
+			    pf_islinklocal)) {
+				reason = PFRES_MAPFAILED;
+				goto done_pool_mtx; /* unsupported */
+			}
+			PF_ACPY(naddr, &rpool->counter, af);
+		} else {
+			PF_POOLMASK(naddr, raddr, rmask,
+			    (struct pf_addr *)&hash, af);
+		}
 		break;
 	    }
 	case PF_POOL_ROUNDROBIN:
@@ -642,7 +698,8 @@ done_pool_mtx:
 u_short
 pf_map_addr_sn(sa_family_t af, struct pf_krule *r, struct pf_addr *saddr,
     struct pf_addr *naddr, struct pfi_kkif **nkif, struct pf_addr *init_addr,
-    struct pf_ksrc_node **sn, struct pf_srchash **sh, struct pf_kpool *rpool)
+    struct pf_ksrc_node **sn, struct pf_srchash **sh, struct pf_kpool *rpool,
+    pf_sn_types_t sn_type)
 {
 	u_short			 reason = 0;
 
@@ -655,7 +712,7 @@ pf_map_addr_sn(sa_family_t af, struct pf_krule *r, struct pf_addr *saddr,
 	 */
 	if (rpool->opts & PF_POOL_STICKYADDR &&
 	    (rpool->opts & PF_POOL_TYPEMASK) != PF_POOL_NONE)
-		*sn = pf_find_src_node(saddr, r, af, sh, false);
+		*sn = pf_find_src_node(saddr, r, af, sh, sn_type, false);
 
 	if (*sn != NULL) {
 		PF_SRC_NODE_LOCK_ASSERT(*sn);
@@ -719,12 +776,7 @@ pf_get_translation(struct pf_pdesc *pd, int off,
     struct pf_udp_mapping **udp_mapping)
 {
 	struct pf_krule	*r = NULL;
-	struct pf_addr	*naddr;
-	struct pf_ksrc_node	*sn = NULL;
-	struct pf_srchash	*sh = NULL;
-	uint16_t	*nportp;
-	uint16_t	 low, high;
-	u_short		 reason;
+	u_short		 transerror;
 
 	PF_RULES_RASSERT();
 	KASSERT(*skp == NULL, ("*skp not NULL"));
@@ -752,38 +804,64 @@ pf_get_translation(struct pf_pdesc *pd, int off,
 		return (PFRES_MAX);
 	}
 
-	if (pf_state_key_setup(pd, pd->nsport, pd->ndport, skp, nkp))
-		return (PFRES_MEMORY);
+	transerror = pf_get_transaddr(pd, skp, nkp, r, udp_mapping, r->action, &(r->rdr));
+	if (transerror == PFRES_MATCH)
+		*rp = r;
+
+	return (transerror);
+}
+
+u_short
+pf_get_transaddr(struct pf_pdesc *pd, struct pf_state_key **skp,
+    struct pf_state_key **nkp, struct pf_krule *r,
+    struct pf_udp_mapping **udp_mapping, uint8_t nat_action,
+    struct pf_kpool *rpool)
+{
+	struct pf_addr	*naddr;
+	struct pf_ksrc_node	*sn = NULL;
+	struct pf_srchash	*sh = NULL;
+	uint16_t	*nportp;
+	uint16_t	 low, high;
+	u_short		 reason;
+
+	PF_RULES_RASSERT();
+	KASSERT(r != NULL, ("r is NULL"));
+	KASSERT(!(r->rule_flag & PFRULE_AFTO), ("AFTO rule"));
+
+	if (*skp == NULL && *nkp == NULL) {
+		if (pf_state_key_setup(pd, pd->nsport, pd->ndport, skp, nkp))
+			return (PFRES_MEMORY);
+	}
 
 	naddr = &(*nkp)->addr[1];
 	nportp = &(*nkp)->port[1];
 
-	switch (r->action) {
+	switch (nat_action) {
 	case PF_NAT:
 		if (pd->proto == IPPROTO_ICMP) {
 			low = 1;
 			high = 65535;
 		} else {
-			low  = r->rdr.proxy_port[0];
-			high = r->rdr.proxy_port[1];
+			low  = rpool->proxy_port[0];
+			high = rpool->proxy_port[1];
 		}
-		if (r->rdr.mape.offset > 0) {
+		if (rpool->mape.offset > 0) {
 			if (pf_get_mape_sport(pd, r, naddr, nportp, &sn,
-			    &sh, udp_mapping)) {
+			    &sh, udp_mapping, rpool)) {
 				DPFPRINTF(PF_DEBUG_MISC,
 				    ("pf: MAP-E port allocation (%u/%u/%u)"
 				    " failed\n",
-				    r->rdr.mape.offset,
-				    r->rdr.mape.psidlen,
-				    r->rdr.mape.psid));
+				    rpool->mape.offset,
+				    rpool->mape.psidlen,
+				    rpool->mape.psid));
 				reason = PFRES_MAPFAILED;
 				goto notrans;
 			}
 		} else if (pf_get_sport(pd, r, naddr, nportp, low, high, &sn,
-		    &sh, &r->rdr, udp_mapping)) {
+		    &sh, rpool, udp_mapping, PF_SN_NAT)) {
 			DPFPRINTF(PF_DEBUG_MISC,
 			    ("pf: NAT proxy port allocation (%u-%u) failed\n",
-			    r->rdr.proxy_port[0], r->rdr.proxy_port[1]));
+			    rpool->proxy_port[0], rpool->proxy_port[1]));
 			reason = PFRES_MAPFAILED;
 			goto notrans;
 		}
@@ -791,41 +869,39 @@ pf_get_translation(struct pf_pdesc *pd, int off,
 	case PF_BINAT:
 		switch (pd->dir) {
 		case PF_OUT:
-			if (r->rdr.cur->addr.type == PF_ADDR_DYNIFTL){
+			if (rpool->cur->addr.type == PF_ADDR_DYNIFTL){
 				switch (pd->af) {
 #ifdef INET
 				case AF_INET:
-					if (r->rdr.cur->addr.p.dyn->
+					if (rpool->cur->addr.p.dyn->
 					    pfid_acnt4 < 1) {
 						reason = PFRES_MAPFAILED;
 						goto notrans;
 					}
 					PF_POOLMASK(naddr,
-					    &r->rdr.cur->addr.p.dyn->
-					    pfid_addr4,
-					    &r->rdr.cur->addr.p.dyn->
-					    pfid_mask4, &pd->nsaddr, AF_INET);
+					    &rpool->cur->addr.p.dyn->pfid_addr4,
+					    &rpool->cur->addr.p.dyn->pfid_mask4,
+					    &pd->nsaddr, AF_INET);
 					break;
 #endif /* INET */
 #ifdef INET6
 				case AF_INET6:
-					if (r->rdr.cur->addr.p.dyn->
+					if (rpool->cur->addr.p.dyn->
 					    pfid_acnt6 < 1) {
 						reason = PFRES_MAPFAILED;
 						goto notrans;
 					}
 					PF_POOLMASK(naddr,
-					    &r->rdr.cur->addr.p.dyn->
-					    pfid_addr6,
-					    &r->rdr.cur->addr.p.dyn->
-					    pfid_mask6, &pd->nsaddr, AF_INET6);
+					    &rpool->cur->addr.p.dyn->pfid_addr6,
+					    &rpool->cur->addr.p.dyn->pfid_mask6,
+					    &pd->nsaddr, AF_INET6);
 					break;
 #endif /* INET6 */
 				}
 			} else
 				PF_POOLMASK(naddr,
-				    &r->rdr.cur->addr.v.a.addr,
-				    &r->rdr.cur->addr.v.a.mask, &pd->nsaddr,
+				    &rpool->cur->addr.v.a.addr,
+				    &rpool->cur->addr.v.a.mask, &pd->nsaddr,
 				    pd->af);
 			break;
 		case PF_IN:
@@ -868,30 +944,30 @@ pf_get_translation(struct pf_pdesc *pd, int off,
 		uint16_t cut, low, high, nport;
 
 		reason = pf_map_addr_sn(pd->af, r, &pd->nsaddr, naddr, NULL,
-		    NULL, &sn, &sh, &r->rdr);
+		    NULL, &sn, &sh, rpool, PF_SN_NAT);
 		if (reason != 0)
 			goto notrans;
-		if ((r->rdr.opts & PF_POOL_TYPEMASK) == PF_POOL_BITMASK)
-			PF_POOLMASK(naddr, naddr, &r->rdr.cur->addr.v.a.mask,
+		if ((rpool->opts & PF_POOL_TYPEMASK) == PF_POOL_BITMASK)
+			PF_POOLMASK(naddr, naddr, &rpool->cur->addr.v.a.mask,
 			    &pd->ndaddr, pd->af);
 
 		/* Do not change SCTP ports. */
 		if (pd->proto == IPPROTO_SCTP)
 			break;
 
-		if (r->rdr.proxy_port[1]) {
+		if (rpool->proxy_port[1]) {
 			uint32_t	tmp_nport;
 
 			tmp_nport = ((ntohs(pd->ndport) - ntohs(r->dst.port[0])) %
-			    (r->rdr.proxy_port[1] - r->rdr.proxy_port[0] +
-			    1)) + r->rdr.proxy_port[0];
+			    (rpool->proxy_port[1] - rpool->proxy_port[0] +
+			    1)) + rpool->proxy_port[0];
 
 			/* Wrap around if necessary. */
 			if (tmp_nport > 65535)
 				tmp_nport -= 65535;
 			nport = htons((uint16_t)tmp_nport);
-		} else if (r->rdr.proxy_port[0])
-			nport = htons(r->rdr.proxy_port[0]);
+		} else if (rpool->proxy_port[0])
+			nport = htons(rpool->proxy_port[0]);
 		else
 			nport = pd->ndport;
 
@@ -966,7 +1042,6 @@ out:
 
 	/* Return success only if translation really happened. */
 	if (bcmp(*skp, *nkp, sizeof(struct pf_state_key_cmp))) {
-		*rp = r;
 		return (PFRES_MATCH);
 	}
 
@@ -1007,7 +1082,8 @@ pf_get_transaddr_af(struct pf_krule *r, struct pf_pdesc *pd)
 
 	/* get source address and port */
 	if (pf_get_sport(pd, r, &nsaddr, &nport,
-	    r->nat.proxy_port[0], r->nat.proxy_port[1], &sns, &sh, &r->nat, NULL)) {
+	    r->nat.proxy_port[0], r->nat.proxy_port[1], &sns, &sh, &r->nat,
+	    NULL, PF_SN_NAT)) {
 		DPFPRINTF(PF_DEBUG_MISC,
 		    ("pf: af-to NAT proxy port allocation (%u-%u) failed",
 		    r->nat.proxy_port[0], r->nat.proxy_port[1]));
@@ -1015,43 +1091,25 @@ pf_get_transaddr_af(struct pf_krule *r, struct pf_pdesc *pd)
 	}
 
 	if (pd->proto == IPPROTO_ICMPV6 && pd->naf == AF_INET) {
-		if (pd->dir == PF_IN) {
-			NTOHS(pd->ndport);
-			if (pd->ndport == ICMP6_ECHO_REQUEST)
-				pd->ndport = ICMP_ECHO;
-			else if (pd->ndport == ICMP6_ECHO_REPLY)
-				pd->ndport = ICMP_ECHOREPLY;
-			HTONS(pd->ndport);
-		} else {
-			NTOHS(pd->nsport);
-			if (pd->nsport == ICMP6_ECHO_REQUEST)
-				pd->nsport = ICMP_ECHO;
-			else if (pd->nsport == ICMP6_ECHO_REPLY)
-				pd->nsport = ICMP_ECHOREPLY;
-			HTONS(pd->nsport);
-		}
+		pd->ndport = ntohs(pd->ndport);
+		if (pd->ndport == ICMP6_ECHO_REQUEST)
+			pd->ndport = ICMP_ECHO;
+		else if (pd->ndport == ICMP6_ECHO_REPLY)
+			pd->ndport = ICMP_ECHOREPLY;
+		pd->ndport = htons(pd->ndport);
 	} else if (pd->proto == IPPROTO_ICMP && pd->naf == AF_INET6) {
-		if (pd->dir == PF_IN) {
-			NTOHS(pd->ndport);
-			if (pd->ndport == ICMP_ECHO)
-				pd->ndport = ICMP6_ECHO_REQUEST;
-			else if (pd->ndport == ICMP_ECHOREPLY)
-				pd->ndport = ICMP6_ECHO_REPLY;
-			HTONS(pd->ndport);
-		} else {
-			NTOHS(pd->nsport);
-			if (pd->nsport == ICMP_ECHO)
-				pd->nsport = ICMP6_ECHO_REQUEST;
-			else if (pd->nsport == ICMP_ECHOREPLY)
-				pd->nsport = ICMP6_ECHO_REPLY;
-			HTONS(pd->nsport);
-		}
+		pd->nsport = ntohs(pd->nsport);
+		if (pd->ndport == ICMP_ECHO)
+			pd->ndport = ICMP6_ECHO_REQUEST;
+		else if (pd->ndport == ICMP_ECHOREPLY)
+			pd->ndport = ICMP6_ECHO_REPLY;
+		pd->nsport = htons(pd->nsport);
 	}
 
 	/* get the destination address and port */
 	if (! TAILQ_EMPTY(&r->rdr.list)) {
 		if (pf_map_addr_sn(pd->naf, r, &nsaddr, &naddr, NULL, NULL,
-		    &sns, NULL, &r->rdr))
+		    &sns, NULL, &r->rdr, PF_SN_NAT))
 			return (-1);
 		if (r->rdr.proxy_port[0])
 			pd->ndport = htons(r->rdr.proxy_port[0]);

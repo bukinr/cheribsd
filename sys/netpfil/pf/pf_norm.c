@@ -43,6 +43,7 @@
 
 #include <net/if.h>
 #include <net/if_var.h>
+#include <net/if_private.h>
 #include <net/vnet.h>
 #include <net/pfvar.h>
 #include <net/if_pflog.h>
@@ -306,8 +307,6 @@ pf_find_fragment(struct pf_fragment_cmp *key, struct pf_frag_tree *tree)
 
 	frag = RB_FIND(pf_frag_tree, tree, (struct pf_fragment *)key);
 	if (frag != NULL) {
-		/* XXX Are we sure we want to update the timeout? */
-		frag->fr_timeout = time_uptime;
 		TAILQ_REMOVE(&V_pf_fragqueue, frag, frag_next);
 		TAILQ_INSERT_HEAD(&V_pf_fragqueue, frag, frag_next);
 	}
@@ -436,7 +435,7 @@ pf_frent_remove(struct pf_fragment *frag, struct pf_frent *frent)
 {
 #ifdef INVARIANTS
 	struct pf_frent *prev = TAILQ_PREV(frent, pf_fragq, fr_next);
-#endif
+#endif /* INVARIANTS */
 	struct pf_frent *next = TAILQ_NEXT(frent, fr_next);
 	int index;
 
@@ -534,7 +533,6 @@ pf_fillup_fragment(struct pf_fragment_cmp *key, struct pf_frent *frent,
 	struct pf_frent		*after, *next, *prev;
 	struct pf_fragment	*frag;
 	uint16_t		total;
-	int			old_index, new_index;
 
 	PF_FRAG_ASSERT();
 
@@ -648,32 +646,20 @@ pf_fillup_fragment(struct pf_fragment_cmp *key, struct pf_frent *frent,
 		uint16_t aftercut;
 
 		aftercut = frent->fe_off + frent->fe_len - after->fe_off;
-		DPFPRINTF(("adjust overlap %d\n", aftercut));
 		if (aftercut < after->fe_len) {
+			DPFPRINTF(("frag tail overlap %d", aftercut));
 			m_adj(after->fe_m, aftercut);
-			old_index = pf_frent_index(after);
+			/* Fragment may switch queue as fe_off changes */
+			pf_frent_remove(frag, after);
 			after->fe_off += aftercut;
 			after->fe_len -= aftercut;
-			new_index = pf_frent_index(after);
-			if (old_index != new_index) {
-				DPFPRINTF(("frag index %d, new %d\n",
-				    old_index, new_index));
-				/* Fragment switched queue as fe_off changed */
-				after->fe_off -= aftercut;
-				after->fe_len += aftercut;
-				/* Remove restored fragment from old queue */
-				pf_frent_remove(frag, after);
-				after->fe_off += aftercut;
-				after->fe_len -= aftercut;
-				/* Insert into correct queue */
-				if (pf_frent_insert(frag, after, prev)) {
-					DPFPRINTF(
-					    ("fragment requeue limit exceeded\n"));
-					m_freem(after->fe_m);
-					uma_zfree(V_pf_frent_z, after);
-					/* There is not way to recover */
-					goto bad_fragment;
-				}
+			/* Insert into correct queue */
+			if (pf_frent_insert(frag, after, prev)) {
+				DPFPRINTF(("fragment requeue limit exceeded"));
+				m_freem(after->fe_m);
+				uma_zfree(V_pf_frent_z, after);
+				/* There is not way to recover */
+				goto free_fragment;
 			}
 			break;
 		}
@@ -721,7 +707,8 @@ pf_join_fragment(struct pf_fragment *frag)
 	TAILQ_REMOVE(&frag->fr_queue, frent, fr_next);
 
 	m = frent->fe_m;
-	m_adj(m, (frent->fe_hdrlen + frent->fe_len) - m->m_pkthdr.len);
+	if ((frent->fe_hdrlen + frent->fe_len) < m->m_pkthdr.len)
+		m_adj(m, (frent->fe_hdrlen + frent->fe_len) - m->m_pkthdr.len);
 	uma_zfree(V_pf_frent_z, frent);
 	while ((frent = TAILQ_FIRST(&frag->fr_queue)) != NULL) {
 		TAILQ_REMOVE(&frag->fr_queue, frent, fr_next);
@@ -730,7 +717,8 @@ pf_join_fragment(struct pf_fragment *frag)
 		/* Strip off ip header. */
 		m_adj(m2, frent->fe_hdrlen);
 		/* Strip off any trailing bytes. */
-		m_adj(m2, frent->fe_len - m2->m_pkthdr.len);
+		if (frent->fe_len < m2->m_pkthdr.len)
+			m_adj(m2, frent->fe_len - m2->m_pkthdr.len);
 
 		uma_zfree(V_pf_frent_z, frent);
 		m_cat(m, m2);
@@ -1064,7 +1052,13 @@ pf_refragment6(struct ifnet *ifp, struct mbuf **m0, struct m_tag *mtag,
 			dst.sin6_len = sizeof(dst);
 			dst.sin6_addr = hdr->ip6_dst;
 
-			nd6_output_ifp(rt, rt, m, &dst, NULL);
+			if (m->m_pkthdr.len <= if_getmtu(ifp)) {
+				nd6_output_ifp(rt, rt, m, &dst, NULL);
+			} else {
+				in6_ifstat_inc(ifp, ifs6_in_toobig);
+				icmp6_error(m, ICMP6_PACKET_TOO_BIG, 0,
+				    if_getmtu(ifp));
+			}
 		} else if (forward) {
 			MPASS(m->m_pkthdr.rcvif != NULL);
 			ip6_forward(m, 0);
@@ -1232,7 +1226,7 @@ pf_normalize_ip(u_short *reason, struct pf_pdesc *pd)
 	REASON_SET(reason, PFRES_FRAG);
  drop:
 	if (r != NULL && r->log)
-		PFLOG_PACKET(PF_DROP, *reason, r, NULL, NULL, pd, 1);
+		PFLOG_PACKET(PF_DROP, *reason, r, NULL, NULL, pd, 1, NULL);
 
 	return (PF_DROP);
 }
@@ -1436,13 +1430,13 @@ pf_normalize_tcp(struct pf_pdesc *pd)
  tcp_drop:
 	REASON_SET(&reason, PFRES_NORM);
 	if (rm != NULL && r->log)
-		PFLOG_PACKET(PF_DROP, reason, r, NULL, NULL, pd, 1);
+		PFLOG_PACKET(PF_DROP, reason, r, NULL, NULL, pd, 1, NULL);
 	return (PF_DROP);
 }
 
 int
 pf_normalize_tcp_init(struct pf_pdesc *pd, struct tcphdr *th,
-    struct pf_state_peer *src, struct pf_state_peer *dst)
+    struct pf_state_peer *src)
 {
 	u_int32_t tsval, tsecr;
 	u_int8_t hdr[60];
@@ -1470,6 +1464,8 @@ pf_normalize_tcp_init(struct pf_pdesc *pd, struct tcphdr *th,
 		break;
 	}
 #endif /* INET6 */
+	default:
+		unhandled_af(pd->af);
 	}
 
 	/*
@@ -1497,7 +1493,7 @@ pf_normalize_tcp_init(struct pf_pdesc *pd, struct tcphdr *th,
 					src->scrub->pfss_flags |=
 					    PFSS_TIMESTAMP;
 					src->scrub->pfss_ts_mod =
-					    htonl(arc4random());
+					    arc4random();
 
 					/* note PFSS_PAWS not set yet */
 					memcpy(&tsval, &opt[2],
@@ -1594,6 +1590,8 @@ pf_normalize_tcp_stateful(struct pf_pdesc *pd,
 		break;
 	}
 #endif /* INET6 */
+	default:
+		unhandled_af(pd->af);
 	}
 
 	if (th->th_off > (sizeof(struct tcphdr) >> 2) &&
@@ -1635,14 +1633,11 @@ pf_normalize_tcp_stateful(struct pf_pdesc *pd,
 					    (src->scrub->pfss_flags &
 					    PFSS_TIMESTAMP)) {
 						tsval = ntohl(tsval);
-						pf_patch_32_unaligned(pd->m,
-						    &th->th_sum,
+						copyback += pf_patch_32(pd,
 						    &opt[2],
 						    htonl(tsval +
 						    src->scrub->pfss_ts_mod),
-						    PF_ALGNMNT(startoff),
-						    0);
-						copyback = 1;
+						    PF_ALGNMNT(startoff));
 					}
 
 					/* Modulate TS reply iff valid (!0) */
@@ -1653,13 +1648,10 @@ pf_normalize_tcp_stateful(struct pf_pdesc *pd,
 					    PFSS_TIMESTAMP)) {
 						tsecr = ntohl(tsecr)
 						    - dst->scrub->pfss_ts_mod;
-						pf_patch_32_unaligned(pd->m,
-						    &th->th_sum,
+						copyback += pf_patch_32(pd,
 						    &opt[6],
 						    htonl(tsecr),
-						    PF_ALGNMNT(startoff),
-						    0);
-						copyback = 1;
+						    PF_ALGNMNT(startoff));
 					}
 					got_ts = 1;
 				}
@@ -1958,8 +1950,8 @@ pf_normalize_mss(struct pf_pdesc *pd)
 	thoff = th->th_off << 2;
 	cnt = thoff - sizeof(struct tcphdr);
 
-	if (cnt > 0 && !pf_pull_hdr(pd->m, pd->off + sizeof(*th), opts, cnt,
-	    NULL, NULL, pd->af))
+	if (cnt <= 0 || cnt > MAX_TCPOPTLEN || !pf_pull_hdr(pd->m,
+	    pd->off + sizeof(*th), opts, cnt, NULL, NULL, pd->af))
 		return (0);
 
 	for (; cnt > 0; cnt -= optlen, optp += optlen) {
@@ -1980,11 +1972,9 @@ pf_normalize_mss(struct pf_pdesc *pd)
 		case TCPOPT_MAXSEG:
 			mss = (u_int16_t *)(optp + 2);
 			if ((ntohs(*mss)) > pd->act.max_mss) {
-				pf_patch_16_unaligned(pd->m,
-				    &th->th_sum,
+				pf_patch_16(pd,
 				    mss, htons(pd->act.max_mss),
-				    PF_ALGNMNT(startoff),
-				    0);
+				    PF_ALGNMNT(startoff));
 				m_copyback(pd->m, pd->off + sizeof(*th),
 				    thoff - sizeof(*th), opts);
 				m_copyback(pd->m, pd->off, sizeof(*th), (caddr_t)th);
@@ -2200,7 +2190,7 @@ sctp_drop:
 	REASON_SET(&reason, PFRES_NORM);
 	if (rm != NULL && r->log)
 		PFLOG_PACKET(PF_DROP, reason, r, NULL, NULL, pd,
-		    1);
+		    1, NULL);
 
 	return (PF_DROP);
 }
@@ -2213,7 +2203,7 @@ pf_scrub(struct pf_pdesc *pd)
 	struct ip		*h = mtod(pd->m, struct ip *);
 #ifdef INET6
 	struct ip6_hdr		*h6 = mtod(pd->m, struct ip6_hdr *);
-#endif
+#endif /* INET6 */
 
 	/* Clear IP_DF if no-df was requested */
 	if (pd->af == AF_INET && pd->act.flags & PFSTATE_NODF &&
@@ -2238,7 +2228,7 @@ pf_scrub(struct pf_pdesc *pd)
 	if (pd->af == AF_INET6 && pd->act.min_ttl &&
 	    h6->ip6_hlim < pd->act.min_ttl)
 		h6->ip6_hlim = pd->act.min_ttl;
-#endif
+#endif /* INET6 */
 	/* Enforce tos */
 	if (pd->act.flags & PFSTATE_SETTOS) {
 		switch (pd->af) {
@@ -2257,7 +2247,7 @@ pf_scrub(struct pf_pdesc *pd)
 			h6->ip6_flow &= IPV6_FLOWLABEL_MASK | IPV6_VERSION_MASK;
 			h6->ip6_flow |= htonl((pd->act.set_tos | IPV6_ECN(h6)) << 20);
 			break;
-#endif
+#endif /* INET6 */
 		}
 	}
 
@@ -2267,9 +2257,9 @@ pf_scrub(struct pf_pdesc *pd)
 	    pd->act.flags & PFSTATE_RANDOMID && !(h->ip_off & ~htons(IP_DF))) {
 		uint16_t ip_id = h->ip_id;
 
-		ip_fillid(h);
+		ip_fillid(h, V_ip_random_id);
 		h->ip_sum = pf_cksum_fixup(h->ip_sum, ip_id, h->ip_id, 0);
 	}
-#endif
+#endif /* INET */
 }
-#endif
+#endif /* INET || INET6 */

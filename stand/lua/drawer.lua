@@ -166,6 +166,10 @@ local function drawmenu(menudef)
 	local x = menu_position.x
 	local y = menu_position.y
 
+	if string.lower(loader.getenv("loader_menu") or "") == "none" then
+	   return
+	end
+
 	x = x + shift.x
 	y = y + shift.y
 
@@ -276,6 +280,10 @@ local function drawbox()
 	local menu_header_align = loader.getenv("loader_menu_title_align")
 	local menu_header_x
 
+	if string.lower(loader.getenv("loader_menu") or "") == "none" then
+	   return
+	end
+
 	x = x + shift.x
 	y = y + shift.y
 
@@ -327,7 +335,7 @@ local function drawbrand()
 	if core.isFramebufferConsole() and
 	    gfx.term_putimage ~= nil and
 	    branddef.image ~= nil then
-		if gfx.term_putimage(branddef.image, 1, 1, 0, 7, 0)
+		if gfx.term_putimage(branddef.image, x, y, 0, 7, 0)
 		then
 			return true
 		end

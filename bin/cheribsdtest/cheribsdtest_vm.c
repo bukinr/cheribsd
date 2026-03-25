@@ -127,7 +127,7 @@ CHERIBSDTEST(vm_tag_mmap_anon_cap,
 }
 
 CHERIBSDTEST(vm_notag_mmap_no_cap,
-    "check tags are not stored it we request no capablity permissions",
+    "check tags are not stored it we request no capability permissions",
     .ct_flags = CT_FLAG_SIGNAL | CT_FLAG_SI_CODE | CT_FLAG_SI_TRAPNO | CT_FLAG_SI_ADDR,
     .ct_signum = SIGSEGV,
     .ct_si_code = SEGV_STORETAG,
@@ -139,7 +139,8 @@ CHERIBSDTEST(vm_notag_mmap_no_cap,
 	int v;
 
 	cp = CHERIBSDTEST_CHECK_SYSCALL(mmap(NULL, getpagesize(),
-	    PROT_READ | PROT_WRITE | PROT_NO_CAP, MAP_ANON, -1, 0));
+		PROT_MAX(PROT_READ | PROT_WRITE | PROT_CAP) |
+		PROT_READ | PROT_WRITE | PROT_NO_CAP, MAP_ANON, -1, 0));
 	cheribsdtest_set_expected_si_addr(NULL_DERIVED_VOIDP(cp));
 	cp_value = cheri_ptr(&v, sizeof(v));
 	*cp = cp_value;

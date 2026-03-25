@@ -53,6 +53,7 @@ class TestICMP(VnetTestTemplate):
         ToolsHelper.print_output("/sbin/pfctl -e")
         ToolsHelper.pf_rules([
             "set reassemble yes",
+            "set state-policy if-bound",
             "block",
             "pass inet proto icmp icmp-type echoreq",
             ])
@@ -86,6 +87,7 @@ class TestICMP(VnetTestTemplate):
         vnet.pipe.send("Got ICMP destination unreachable packet")
 
     @pytest.mark.require_user("root")
+    @pytest.mark.require_progs(["scapy"])
     def test_inner_match(self):
         vnet = self.vnet_map["vnet1"]
         dst_vnet = self.vnet_map["vnet3"]
@@ -160,6 +162,7 @@ class TestICMP(VnetTestTemplate):
         return
 
     @pytest.mark.require_user("root")
+    @pytest.mark.require_progs(["scapy"])
     def test_fragmentation_needed(self):
         ToolsHelper.print_output("/sbin/route add default 192.0.2.1")
 

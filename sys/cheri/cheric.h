@@ -164,14 +164,9 @@
 #define	cheri_is_null_derived(x)					\
 	cheri_is_equal_exact((uintcap_t)cheri_address_get(x), x)
 
-/* Create an untagged capability from an integer */
-#define cheri_fromint(x)	cheri_offset_set(NULL, x)
-
 /* Increment @p dst to have the address of @p src */
 #define cheri_address_copy(dst, src)					\
 	(cheri_address_set(dst, cheri_address_get(src)))
-
-#define	cheri_offset_inc(x, y)	__builtin_cheri_offset_increment((x), (y))
 
 /* Get the top of a capability (i.e. one byte past the last accessible one) */
 #define	cheri_top_get(cap)	__extension__({			\
@@ -186,21 +181,6 @@ cheri_is_address_inbounds(const void * __capability cap, ptraddr_t addr)
 	return (addr >= cheri_base_get(cap) && addr < cheri_top_get(cap));
 }
 
-#ifdef _KERNEL
-/*
- * Check if the capability is valid, unsealed, has the given permissions and
- * grants access to length bytes at address base.
- */
-static inline bool
-cheri_can_access(const void * __capability cap, ptraddr_t perms, ptraddr_t base,
-    size_t length)
-{
-	return (cheri_tag_get(cap) && !cheri_is_sealed(cap) &&
-	    (cheri_perms_get(cap) & perms) == perms &&
-	    base >= cheri_base_get(cap) && base + length <= cheri_top_get(cap));
-}
-#endif
-
 static inline size_t
 cheri_bytes_remaining(const void * __capability cap)
 {
@@ -208,6 +188,22 @@ cheri_bytes_remaining(const void * __capability cap)
 		return 0;
 	return cheri_length_get(cap) - cheri_offset_get(cap);
 }
+
+#ifdef _KERNEL
+/*
+ * Check if the capability is valid, unsealed, has the given permissions and
+ * grants access to length bytes at the current address
+ */
+static inline bool
+cheri_can_access(const void * __capability cap, ptraddr_t perms,
+    size_t length)
+{
+	return (cheri_tag_get(cap) && !cheri_is_sealed(cap) &&
+	    (cheri_perms_get(cap) & perms) == perms &&
+	    cheri_address_get(cap) >= cheri_base_get(cap) &&
+	    length <= cheri_bytes_remaining(cap));
+}
+#endif
 
 #define	cheri_stack_get()	__builtin_cheri_stack_get()
 
@@ -230,124 +226,6 @@ cheri_bytes_remaining(const void * __capability cap)
 #define	cheri_kern_perms_and(x, y)	(x)
 #endif	/* __CHERI_PURE_CAPABILITY__ */
 #endif	/* _KERNEL */
-
-/*
- * The cheri_{get,set,clear}_low_pointer_bits() functions work both with and
- * without CHERI support so can be used unconditionally to fix
- * -Wcheri-bitwise-operations warnings.
- *
- * XXXAR: Should kept in sync with the version from clang's cheri.h.
- */
-
-static inline __result_use_check size_t
-__cheri_get_low_ptr_bits(uintptr_t ptr, size_t mask) {
-	/*
-	 * Note: we continue to use bitwise and on the uintcap value and silence
-	 * the warning instead of using __builtin_cheri_offset_get() in case
-	 * we decide to use a virtual-address instead offset interpretation of
-	 * capabilities in the future.
-	 * We mustn't return a LHS-derived capability here so we need to
-	 * explicitly cast the result to a non-capability integer
-	 */
-	return (size_t)(ptr & mask);
-}
-
-static inline __result_use_check uintptr_t
-__cheri_set_low_ptr_bits(uintptr_t ptr, size_t bits) {
-	/*
-	 * We want to return a LHS-derived capability here so using the default
-	 * uintcap_t semantics is fine.
-	 */
-	return ptr | bits;
-}
-
-static inline __result_use_check uintptr_t
-__cheri_clear_low_ptr_bits(uintptr_t ptr, size_t bits_mask) {
-	/*
-	 * We want to return a LHS-derived capability here so using the default
-	 * uintcap_t semantics is fine.
-	 */
-	return ptr & (~bits_mask);
-}
-
-/* Turn on the checking by default for now (until we have fixed everything)*/
-#define __check_low_ptr_bits_assignment
-#if defined(_KERNEL) || !defined(assert) /* Don't pull in assert.h when building the kernel */
-#define _cheri_bits_assert(e) (void)0
-#endif
-#ifdef __check_low_ptr_bits_assignment
-#ifndef _cheri_bits_assert
-#define _cheri_bits_assert(e) assert(e)
-#endif
-#define __runtime_assert_sensible_low_bits(bits)                               \
-  __extension__({                                                              \
-    _cheri_bits_assert((bits) < 32 && "Should only use the low 5 pointer bits"); \
-    bits;                                                                      \
-  })
-#else
-#define __runtime_assert_sensible_low_bits(bits) bits
-#endif
-#define __static_assert_sensible_low_bits(bits)                                \
-  __extension__({                                                              \
-    _Static_assert((bits) < 32, "Should only use the low 5 pointer bits");     \
-    bits;                                                                      \
-  })
-
-/*
- * Get the low bits defined in @p mask from the capability/pointer @p ptr.
- * @p mask must be a compile-time constant less than 31.
- * TODO: should we allow non-constant masks?
- *
- * @param ptr the uintptr_t that may have low bits sets
- * @param mask the mask for the low pointer bits to retrieve
- * @return a size_t containing the the low bits from @p ptr
- *
- * Rationale: this function is needed because extracting the low bits using a
- * bitwise-and operation returns a LHS-derived capability with the offset
- * field set to LHS.offset & mask. This is almost certainly not what the user
- * wanted since it will always compare not equal to any integer constant.
- * For example lots of mutex code uses something like `if ((x & 1) == 1)` to
- * detect if the lock is currently contented. This comparison always returns
- * false under CHERI the LHS of the == is a valid capability with offset 3 and
- * the RHS is an untagged intcap_t with offset 3.
- * See https://github.com/CTSRD-CHERI/clang/issues/189
- */
-#define cheri_get_low_ptr_bits(ptr, mask)                                      \
-  __cheri_get_low_ptr_bits((uintptr_t)(ptr), __static_assert_sensible_low_bits(mask))
-
-/*
- * Set low bits in a uintptr_t
- *
- * @param ptr the uintptr_t that may have low bits sets
- * @param bits the value to bitwise-or with @p ptr.
- * @return a uintptr_t that has the low bits defined in @p mask set to @p bits
- *
- * @note this function is not strictly required since a plain bitwise or will
- * generally give the behaviour that is expected from other platforms but.
- * However, we can't really make the warning "-Wcheri-bitwise-operations"
- * trigger based on of the right hand side expression since it may not be a
- * compile-time constant.
- */
-#define cheri_set_low_ptr_bits(ptr, bits)                                      \
-  __cheri_set_low_ptr_bits((uintptr_t)(ptr), __runtime_assert_sensible_low_bits(bits))
-
-/*
- * Clear the bits in @p mask from the capability/pointer @p ptr.
- *
- * @param ptr the uintptr_t that may have low bits sets
- * @param mask this is the mask for the low pointer bits, not the mask for
- * the bits that should remain set.
- * @return a uintptr_t that has the low bits defined in @p mask set to zeroes
- *
- * @note this function is not strictly required since a plain bitwise or will
- * generally give the behaviour that is expected from other platforms but.
- * However, we can't really make the warning "-Wcheri-bitwise-operations"
- * trigger based on of the right hand side expression since it may not be a
- * compile-time constant.
- *
- */
-#define cheri_clear_low_ptr_bits(ptr, mask)                                    \
-  __cheri_clear_low_ptr_bits((uintptr_t)(ptr), __runtime_assert_sensible_low_bits(mask))
 
 #if __has_feature(capabilities)
 #define	CHERI_REPRESENTABLE_LENGTH(len) \

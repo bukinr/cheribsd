@@ -1215,9 +1215,9 @@ pmap_extract_and_hold(pmap_t pmap, vm_offset_t va, vm_prot_t prot)
 		if ((prot & VM_PROT_WRITE) != 0 && (l3 & PTE_W) == 0)
 			use = false;
 #if __has_feature(capabilities)
-		if ((prot & VM_PROT_READ_CAP) != 0 && (l3 & PTE_CR) == 0)
+		if (VM_PROT_HAS_READ_CAP(prot) && (l3 & PTE_CR) == 0)
 			use = false;
-		if ((prot & VM_PROT_WRITE_CAP) != 0 && (l3 & PTE_CW) == 0)
+		if (VM_PROT_HAS_WRITE_CAP(prot) && (l3 & PTE_CW) == 0)
 			use = false;
 #endif
 		if (use) {
@@ -1375,9 +1375,10 @@ pmap_map(vm_pointer_t *virt, vm_paddr_t start, vm_paddr_t end, int prot)
 	vm_pointer_t p;
 
 	p = PHYS_TO_DMAP(start);
-	p = cheri_kern_bounds_set(p, end - start);
-	p = cheri_kern_perms_and(p, vm_map_prot2perms(prot) |
-	    ~CHERI_PROT2PERM_MASK);
+#ifdef __CHERI_PURE_CAPABILITY__
+	p = cheri_bounds_set(p, end - start);
+	p = cheri_perms_and(p, vm_prot2perms(cheri_perms_get(p), prot));
+#endif
 
 	return (p);
 }
@@ -2943,20 +2944,20 @@ pmap_fault(pmap_t pmap, vm_offset_t va, vm_prot_t ftype)
 	if ((pmap != kernel_pmap && (oldpte & PTE_U) == 0) ||
 	    ((ftype & VM_PROT_WRITE) != 0 && (oldpte & PTE_W) == 0) ||
 #if __has_feature(capabilities)
-	    ((ftype & VM_PROT_WRITE_CAP) != 0 && (oldpte & PTE_CW) == 0) ||
+	    (VM_PROT_HAS_WRITE_CAP(ftype) && (oldpte & PTE_CW) == 0) ||
 #endif
 	    (ftype == VM_PROT_EXECUTE && (oldpte & PTE_X) == 0) ||
 	    (ftype == VM_PROT_READ && (oldpte & PTE_R) == 0))
 		goto done;
 
 	bits = PTE_A;
-	if ((ftype & VM_PROT_WRITE) != 0)
+	if ((ftype & VM_PROT_WRITE) != 0) {
 		bits |= PTE_D;
-
 #if __has_feature(capabilities)
-	if ((ftype & VM_PROT_WRITE_CAP) != 0)
-		bits |= PTE_CD;
+		if ((ftype & VM_PROT_CAP) != 0)
+			bits |= PTE_CD;
 #endif
+	}
 
 	/*
 	 * Spurious faults can occur if the implementation caches invalid
@@ -3294,8 +3295,7 @@ cheri_pte_cr(pmap_t pmap, vm_offset_t va, vm_page_t m, vm_prot_t prot)
 	 * the moment, just leave it be, but this merits more investigation.
 	 * See also pmap_caploadgen_test_all_clean.
 	 */
-
-	if (prot & VM_PROT_READ_CAP) {
+	if (VM_PROT_HAS_READ_CAP(prot)) {
 #ifdef CHERI_CAPREVOKE
 		if (va < VM_MAX_USER_ADDRESS) {
 			/* User pages' tags gated by CLG */
@@ -3350,17 +3350,23 @@ pmap_enter(pmap_t pmap, vm_offset_t va, vm_page_t m, vm_prot_t prot,
 	new_l3 = PTE_V | PTE_R | PTE_A;
 	if (prot & VM_PROT_EXECUTE)
 		new_l3 |= PTE_X;
-	if (flags & VM_PROT_WRITE)
+	if (flags & VM_PROT_WRITE) {
 		new_l3 |= PTE_D;
-	if (prot & VM_PROT_WRITE)
+#if __has_feature(capabilities)
+		if (flags & VM_PROT_CAP)
+			new_l3 |= PTE_CD;
+#endif
+	}
+	if (prot & VM_PROT_WRITE) {
 		new_l3 |= PTE_W;
+#if __has_feature(capabilities)
+		if (prot & VM_PROT_CAP)
+			new_l3 |= PTE_CW;
+#endif
+	}
 	if (va < VM_MAX_USER_ADDRESS)
 		new_l3 |= PTE_U;
 #if __has_feature(capabilities)
-	if (prot & VM_PROT_WRITE_CAP)
-		new_l3 |= PTE_CW;
-	if (flags & VM_PROT_WRITE_CAP)
-		new_l3 |= PTE_CD;
 	new_l3 |= cheri_pte_cr(pmap, va, m, prot);
 #endif
 
@@ -3375,12 +3381,13 @@ pmap_enter(pmap_t pmap, vm_offset_t va, vm_page_t m, vm_prot_t prot,
 	 * to do the dirty bit accounting for these mappings.
 	 */
 	if ((m->oflags & VPO_UNMANAGED) != 0) {
-		if (prot & VM_PROT_WRITE)
+		if (prot & VM_PROT_WRITE) {
 			new_l3 |= PTE_D;
 #if __has_feature(capabilities)
-		if (prot & VM_PROT_WRITE_CAP)
-			new_l3 |= PTE_CD;
+			if (prot & VM_PROT_CAP)
+				new_l3 |= PTE_CD;
 #endif
+		}
 	} else
 		new_l3 |= PTE_SW_MANAGED;
 
@@ -3799,31 +3806,33 @@ void
 pmap_enter_object(pmap_t pmap, vm_offset_t start, vm_offset_t end,
     vm_page_t m_start, vm_prot_t prot)
 {
+	struct pctrie_iter pages;
 	struct rwlock *lock;
 	vm_offset_t va;
 	vm_page_t m, mpte;
-	vm_pindex_t diff, psize;
 	int rv;
 
 	VM_OBJECT_ASSERT_LOCKED(m_start->object);
 
-	psize = atop(end - start);
 	mpte = NULL;
-	m = m_start;
+	vm_page_iter_limit_init(&pages, m_start->object,
+	    m_start->pindex + atop(end - start));
+	m = vm_radix_iter_lookup(&pages, m_start->pindex);
 	lock = NULL;
 	rw_rlock(&pvh_global_lock);
 	PMAP_LOCK(pmap);
-	while (m != NULL && (diff = m->pindex - m_start->pindex) < psize) {
-		va = start + ptoa(diff);
+	while (m != NULL) {
+		va = start + ptoa(m->pindex - m_start->pindex);
 		if ((va & L2_OFFSET) == 0 && va + L2_SIZE <= end &&
 		    m->psind == 1 && pmap_ps_enabled(pmap) &&
 		    ((rv = pmap_enter_2mpage(pmap, va, m, prot, &lock)) ==
-		    KERN_SUCCESS || rv == KERN_NO_SPACE))
-			m = &m[L2_SIZE / PAGE_SIZE - 1];
-		else
+		    KERN_SUCCESS || rv == KERN_NO_SPACE)) {
+			m = vm_radix_iter_jump(&pages, L2_SIZE / PAGE_SIZE);
+		} else {
 			mpte = pmap_enter_quick_locked(pmap, va, m, prot, mpte,
 			    &lock);
-		m = TAILQ_NEXT(m, listq);
+			m = vm_radix_iter_step(&pages);
+		}
 	}
 	if (lock != NULL)
 		rw_wunlock(lock);

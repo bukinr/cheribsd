@@ -876,10 +876,20 @@ reswitch:	switch (ch = (u_char)*fmt++) {
 					PCHAR('w');
 				if (num & CHERI_PERM_EXECUTE)
 					PCHAR('x');
+#ifdef HAS_CHERI_PERM_LOAD_STORE_CAP
 				if (num & CHERI_PERM_LOAD_CAP)
 					PCHAR('R');
 				if (num & CHERI_PERM_STORE_CAP)
 					PCHAR('W');
+#endif
+#ifdef HAS_CHERI_PERM_CAP
+				if (num & CHERI_PERM_CAP)
+					PCHAR('C');
+#endif
+#ifdef HAS_CHERI_PERM_LOAD_MUTABLE
+				if (num & CHERI_PERM_LOAD_MUTABLE)
+					PCHAR('M');
+#endif
 				PCHAR(',');
 
 				/* bounds */
@@ -984,8 +994,7 @@ reswitch:	switch (ch = (u_char)*fmt++) {
 			if (p == NULL)
 				p = "(null)";
 #ifdef __CHERI_PURE_CAPABILITY__
-			else if (!cheri_can_access(p, CHERI_PERM_LOAD,
-			    (ptraddr_t)p, 1))
+			else if (!cheri_can_access(p, CHERI_PERM_LOAD, 1))
 				p = "(invalid)";
 #endif
 			if (!dot)

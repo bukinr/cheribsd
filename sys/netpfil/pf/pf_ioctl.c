@@ -342,7 +342,7 @@ pfattach_vnet(void)
 	/* default rule should never be garbage collected */
 	V_pf_default_rule.entries.tqe_prev = &V_pf_default_rule.entries.tqe_next;
 	V_pf_default_rule.action = V_default_to_drop ? PF_DROP : PF_PASS;
-	V_pf_default_rule.nr = -1;
+	V_pf_default_rule.nr = (uint32_t)-1;
 	V_pf_default_rule.rtableid = -1;
 
 	pf_counter_u64_init(&V_pf_default_rule.evaluations, M_WAITOK);
@@ -352,7 +352,8 @@ pfattach_vnet(void)
 	}
 	V_pf_default_rule.states_cur = counter_u64_alloc(M_WAITOK);
 	V_pf_default_rule.states_tot = counter_u64_alloc(M_WAITOK);
-	V_pf_default_rule.src_nodes = counter_u64_alloc(M_WAITOK);
+	for (pf_sn_types_t sn_type = 0; sn_type<PF_SN_MAX; sn_type++)
+		V_pf_default_rule.src_nodes[sn_type] = counter_u64_alloc(M_WAITOK);
 
 	V_pf_default_rule.timestamp = uma_zalloc_pcpu(pf_timestamp_pcpu_zone,
 	    M_WAITOK | M_ZERO);
@@ -1316,6 +1317,7 @@ pf_hash_rule_rolling(MD5_CTX *ctx, struct pf_krule *rule)
 	PF_MD5_UPD(rule, af);
 	PF_MD5_UPD(rule, quick);
 	PF_MD5_UPD(rule, ifnot);
+	PF_MD5_UPD(rule, rcvifnot);
 	PF_MD5_UPD(rule, match_tag_not);
 	PF_MD5_UPD(rule, natpass);
 	PF_MD5_UPD(rule, keep_state);
@@ -1853,7 +1855,8 @@ pf_krule_free(struct pf_krule *rule)
 	}
 	counter_u64_free(rule->states_cur);
 	counter_u64_free(rule->states_tot);
-	counter_u64_free(rule->src_nodes);
+	for (pf_sn_types_t sn_type=0; sn_type<PF_SN_MAX; sn_type++)
+		counter_u64_free(rule->src_nodes[sn_type]);
 	uma_zfree_pcpu(pf_timestamp_pcpu_zone, rule->timestamp);
 
 	mtx_destroy(&rule->nat.mtx);
@@ -2089,7 +2092,8 @@ pf_ioctl_addrule(struct pf_krule *rule, uint32_t ticket,
 	}
 	rule->states_cur = counter_u64_alloc(M_WAITOK);
 	rule->states_tot = counter_u64_alloc(M_WAITOK);
-	rule->src_nodes = counter_u64_alloc(M_WAITOK);
+	for (pf_sn_types_t sn_type=0; sn_type<PF_SN_MAX; sn_type++)
+		rule->src_nodes[sn_type] = counter_u64_alloc(M_WAITOK);
 	rule->cuid = uid;
 	rule->cpid = pid;
 	TAILQ_INIT(&rule->rdr.list);
@@ -2211,17 +2215,31 @@ pf_ioctl_addrule(struct pf_krule *rule, uint32_t ticket,
 	}
 
 	pf_mv_kpool(&V_pf_pabuf[0], &rule->nat.list);
-	pf_mv_kpool(&V_pf_pabuf[1], &rule->rdr.list);
-	pf_mv_kpool(&V_pf_pabuf[2], &rule->route.list);
-	if (((((rule->action == PF_NAT) || (rule->action == PF_RDR) ||
-	    (rule->action == PF_BINAT)) && rule->anchor == NULL) ||
-	    (rule->rt > PF_NOPFROUTE)) &&
-	    (TAILQ_FIRST(&rule->rdr.list) == NULL &&
-	     TAILQ_FIRST(&rule->route.list) == NULL))
-		error = EINVAL;
 
-	if (rule->action == PF_PASS && rule->rdr.opts & PF_POOL_STICKYADDR &&
-	    !rule->keep_state) {
+	/*
+	 * Old version of pfctl provide route redirection pools in single
+	 * common redirection pool rdr. New versions use rdr only for
+	 * rdr-to rules.
+	 */
+	if (rule->rt > PF_NOPFROUTE && TAILQ_EMPTY(&V_pf_pabuf[2])) {
+		pf_mv_kpool(&V_pf_pabuf[1], &rule->route.list);
+	} else {
+		pf_mv_kpool(&V_pf_pabuf[1], &rule->rdr.list);
+		pf_mv_kpool(&V_pf_pabuf[2], &rule->route.list);
+	}
+
+	if (((rule->action == PF_NAT) || (rule->action == PF_RDR) ||
+	    (rule->action == PF_BINAT))	&& rule->anchor == NULL &&
+	    TAILQ_FIRST(&rule->rdr.list) == NULL) {
+		error = EINVAL;
+	}
+
+	if (rule->rt > PF_NOPFROUTE && (TAILQ_FIRST(&rule->route.list) == NULL)) {
+		error = EINVAL;
+	}
+
+	if (rule->action == PF_PASS && (rule->rdr.opts & PF_POOL_STICKYADDR ||
+	    rule->nat.opts & PF_POOL_STICKYADDR) && !rule->keep_state) {
 		error = EINVAL;
 	}
 
@@ -2292,7 +2310,7 @@ pf_kill_matching_state(struct pf_state_key_cmp *key, int dir)
 		return (0);
 	}
 
-	pf_unlink_state(s);
+	pf_remove_state(s);
 	return (1);
 }
 
@@ -2389,7 +2407,7 @@ relock_DIOCKILLSTATES:
 			match_key.port[1] = s->key[idx]->port[0];
 		}
 
-		pf_unlink_state(s);
+		pf_remove_state(s);
 		killed++;
 
 		if (psk->psk_kill_match)
@@ -2400,6 +2418,12 @@ relock_DIOCKILLSTATES:
 	PF_HASHROW_UNLOCK(ih);
 
 	return (killed);
+}
+
+void
+unhandled_af(int af)
+{
+	panic("unhandled af %d", af);
 }
 
 int
@@ -2561,14 +2585,20 @@ pf_ioctl_add_addr(struct pf_nl_pooladdr *pp)
 	    pp->which != PF_RT)
 		return (EINVAL);
 
-#ifndef INET
-	if (pp->af == AF_INET)
-		return (EAFNOSUPPORT);
+	switch (pp->af) {
+#ifdef INET
+	case AF_INET:
+		/* FALLTHROUGH */
 #endif /* INET */
-#ifndef INET6
-	if (pp->af == AF_INET6)
-		return (EAFNOSUPPORT);
+#ifdef INET6
+	case AF_INET6:
+		/* FALLTHROUGH */
 #endif /* INET6 */
+	case AF_UNSPEC:
+		break;
+	default:
+		return (EAFNOSUPPORT);
+	}
 
 	if (pp->addr.addr.type != PF_ADDR_ADDRMASK &&
 	    pp->addr.addr.type != PF_ADDR_DYNIFTL &&
@@ -3648,7 +3678,8 @@ DIOCGETRULENV_error:
 			}
 			newrule->states_cur = counter_u64_alloc(M_WAITOK);
 			newrule->states_tot = counter_u64_alloc(M_WAITOK);
-			newrule->src_nodes = counter_u64_alloc(M_WAITOK);
+			for (pf_sn_types_t sn_type=0; sn_type<PF_SN_MAX; sn_type++)
+				newrule->src_nodes[sn_type] = counter_u64_alloc(M_WAITOK);
 			newrule->cuid = td->td_ucred->cr_ruid;
 			newrule->cpid = td->td_proc ? td->td_proc->p_pid : 0;
 			TAILQ_INIT(&newrule->nat.list);
@@ -5667,9 +5698,14 @@ pfsync_state_export(union pfsync_state_union *sp, struct pf_kstate *st, int msg_
 			    __func__, msg_version);
 	}
 
-	if (st->src_node)
+	/*
+	 * XXX Why do we bother pfsyncing source node information if source
+	 * nodes are not synced? Showing users that there is source tracking
+	 * when there is none seems useless.
+	 */
+	if (st->sns[PF_SN_LIMIT] != NULL)
 		sp->pfs_1301.sync_flags |= PFSYNC_FLAG_SRCNODE;
-	if (st->nat_src_node)
+	if (st->sns[PF_SN_NAT] != NULL || st->sns[PF_SN_ROUTE])
 		sp->pfs_1301.sync_flags |= PFSYNC_FLAG_NATSRCNODE;
 
 	sp->pfs_1301.id = st->id;
@@ -5735,7 +5771,7 @@ pf_state_export(struct pf_state_export *sp, struct pf_kstate *st)
 	strlcpy(sp->ifname, st->kif->pfik_name, sizeof(sp->ifname));
 	strlcpy(sp->orig_ifname, st->orig_kif->pfik_name,
 	    sizeof(sp->orig_ifname));
-	bcopy(&st->act.rt_addr, &sp->rt_addr, sizeof(sp->rt_addr));
+	memcpy(&sp->rt_addr, &st->act.rt_addr, sizeof(sp->rt_addr));
 	sp->creation = htonl(time_uptime - (st->creation / 1000));
 	sp->expire = pf_state_expires(st);
 	if (sp->expire <= time_uptime)
@@ -5749,11 +5785,10 @@ pf_state_export(struct pf_state_export *sp, struct pf_kstate *st)
 	/* 8 bits for the old libpfctl, 16 bits for the new libpfctl */
 	sp->state_flags_compat = st->state_flags;
 	sp->state_flags = htons(st->state_flags);
-	if (st->src_node)
+	if (st->sns[PF_SN_LIMIT] != NULL)
 		sp->sync_flags |= PFSYNC_FLAG_SRCNODE;
-	if (st->nat_src_node)
+	if (st->sns[PF_SN_NAT] != NULL || st->sns[PF_SN_ROUTE] != NULL)
 		sp->sync_flags |= PFSYNC_FLAG_NATSRCNODE;
-
 	sp->id = st->id;
 	sp->creatorid = st->creatorid;
 	pf_state_peer_hton(&st->src, &sp->src);
@@ -5960,7 +5995,7 @@ relock:
 			s->timeout = PFTM_PURGE;
 			/* Don't send out individual delete messages. */
 			s->state_flags |= PFSTATE_NOSYNC;
-			pf_unlink_state(s);
+			pf_remove_state(s);
 			goto relock;
 		}
 		PF_HASHROW_UNLOCK(ih);
@@ -6018,10 +6053,13 @@ pf_kill_srcnodes(struct pfioc_src_node_kill *psnk)
 
 		PF_HASHROW_LOCK(ih);
 		LIST_FOREACH(s, &ih->states, entry) {
-			if (s->src_node && s->src_node->expire == 1)
-				s->src_node = NULL;
-			if (s->nat_src_node && s->nat_src_node->expire == 1)
-				s->nat_src_node = NULL;
+			for(pf_sn_types_t sn_type=0; sn_type<PF_SN_MAX;
+			    sn_type++) {
+				if (s->sns[sn_type] &&
+				    s->sns[sn_type]->expire == 1) {
+					s->sns[sn_type] = NULL;
+				}
+			}
 		}
 		PF_HASHROW_UNLOCK(ih);
 	}
@@ -6115,7 +6153,7 @@ relock_DIOCCLRSTATES:
 			 * delete messages.
 			 */
 			s->state_flags |= PFSTATE_NOSYNC;
-			pf_unlink_state(s);
+			pf_remove_state(s);
 			killed++;
 
 			if (kill->psk_kill_match)
@@ -6144,7 +6182,7 @@ pf_killstates(struct pf_kstate_kill *kill, unsigned int *killed)
 			kill->psk_pfcmp.creatorid = V_pf_status.hostid;
 		if ((s = pf_find_state_byid(kill->psk_pfcmp.id,
 		    kill->psk_pfcmp.creatorid))) {
-			pf_unlink_state(s);
+			pf_remove_state(s);
 			*killed = 1;
 		}
 		return;
@@ -6845,7 +6883,8 @@ pf_unload_vnet(void)
 	}
 	counter_u64_free(V_pf_default_rule.states_cur);
 	counter_u64_free(V_pf_default_rule.states_tot);
-	counter_u64_free(V_pf_default_rule.src_nodes);
+	for (pf_sn_types_t sn_type=0; sn_type<PF_SN_MAX; sn_type++)
+		counter_u64_free(V_pf_default_rule.src_nodes[sn_type]);
 	uma_zfree_pcpu(pf_timestamp_pcpu_zone, V_pf_default_rule.timestamp);
 
 	for (int i = 0; i < PFRES_MAX; i++)
@@ -6932,4 +6971,5 @@ static moduledata_t pf_mod = {
 
 DECLARE_MODULE(pf, pf_mod, SI_SUB_PROTO_FIREWALL, SI_ORDER_SECOND);
 MODULE_DEPEND(pf, netlink, 1, 1, 1);
+MODULE_DEPEND(pf, crypto, 1, 1, 1);
 MODULE_VERSION(pf, PF_MODVER);

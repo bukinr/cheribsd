@@ -112,9 +112,6 @@
 #include <netinet/tcpip.h>
 #include <netinet/cc/cc.h>
 #include <netinet/tcp_fastopen.h>
-#ifdef TCPPCAP
-#include <netinet/tcp_pcap.h>
-#endif
 #include <netinet/tcp_syncache.h>
 #ifdef TCP_OFFLOAD
 #include <netinet/tcp_offload.h>
@@ -465,6 +462,7 @@ cc_cong_signal(struct tcpcb *tp, struct tcphdr *th, uint32_t type)
 			ENTER_CONGRECOVERY(tp->t_flags);
 		tp->snd_nxt = tp->snd_max;
 		tp->t_flags &= ~TF_PREVVALID;
+		tp->t_rxtshift = 0;
 		tp->t_badrxtwin = 0;
 		break;
 	}
@@ -1290,7 +1288,7 @@ tfo_socket_result:
 		 *	global or subnet broad- or multicast address.
 		 *   Note that it is quite possible to receive unicast
 		 *	link-layer packets with a broadcast IP address. Use
-		 *	in_broadcast() to find them.
+		 *	in_ifnet_broadcast() to find them.
 		 */
 		if (m->m_flags & (M_BCAST|M_MCAST)) {
 			if ((s = tcp_log_addrs(&inc, th, NULL, NULL)))
@@ -1335,7 +1333,7 @@ tfo_socket_result:
 			if (IN_MULTICAST(ntohl(ip->ip_dst.s_addr)) ||
 			    IN_MULTICAST(ntohl(ip->ip_src.s_addr)) ||
 			    ip->ip_src.s_addr == htonl(INADDR_BROADCAST) ||
-			    in_broadcast(ip->ip_dst, m->m_pkthdr.rcvif)) {
+			    in_ifnet_broadcast(ip->ip_dst, m->m_pkthdr.rcvif)) {
 				if ((s = tcp_log_addrs(&inc, th, NULL, NULL)))
 				    log(LOG_DEBUG, "%s; %s: Listen socket: "
 					"Connection attempt from/to broad- "
@@ -1455,7 +1453,7 @@ drop:
  *     is at least 3/8 of the current socket buffer size.
  *  3. receive buffer size has not hit maximal automatic size;
  *
- * If all of the criteria are met we increaset the socket buffer
+ * If all of the criteria are met, we increase the socket buffer
  * by a 1/2 (bounded by the max). This allows us to keep ahead
  * of slow-start but also makes it so our peer never gets limited
  * by our rwnd which we then open up causing a burst.
@@ -1545,10 +1543,6 @@ tcp_do_segment(struct tcpcb *tp, struct mbuf *m, struct tcphdr *th,
 	KASSERT(tp->t_state != TCPS_TIME_WAIT, ("%s: TCPS_TIME_WAIT",
 	    __func__));
 
-#ifdef TCPPCAP
-	/* Save segment, if requested. */
-	tcp_pcap_add(th, m, &(tp->t_inpkts));
-#endif
 	TCP_LOG_EVENT(tp, th, &so->so_rcv, &so->so_snd, TCP_LOG_IN, 0,
 	    tlen, NULL, true);
 
@@ -1635,11 +1629,6 @@ tcp_do_segment(struct tcpcb *tp, struct mbuf *m, struct tcphdr *th,
 		to.to_tsecr -= tp->ts_offset;
 		if (TSTMP_GT(to.to_tsecr, tcp_ts_getticks())) {
 			to.to_tsecr = 0;
-		} else if (tp->t_rxtshift == 1 &&
-			 tp->t_flags & TF_PREVVALID &&
-			 tp->t_badrxtwin != 0 &&
-			 TSTMP_LT(to.to_tsecr, tp->t_badrxtwin)) {
-			cc_cong_signal(tp, th, CC_RTO_ERR);
 		}
 	}
 	/*
@@ -1792,15 +1781,17 @@ tcp_do_segment(struct tcpcb *tp, struct mbuf *m, struct tcphdr *th,
 				TCPSTAT_INC(tcps_predack);
 
 				/*
-				 * "bad retransmit" recovery without timestamps.
+				 * "bad retransmit" recovery.
 				 */
-				if ((to.to_flags & TOF_TS) == 0 &&
-				    tp->t_rxtshift == 1 &&
+				if (tp->t_rxtshift == 1 &&
 				    tp->t_flags & TF_PREVVALID &&
 				    tp->t_badrxtwin != 0 &&
-				    TSTMP_LT(ticks, tp->t_badrxtwin)) {
+				    (((to.to_flags & TOF_TS) != 0 &&
+				      to.to_tsecr != 0 &&
+				      TSTMP_LT(to.to_tsecr, tp->t_badrxtwin)) ||
+				     ((to.to_flags & TOF_TS) == 0 &&
+				      TSTMP_LT(ticks, tp->t_badrxtwin))))
 					cc_cong_signal(tp, th, CC_RTO_ERR);
-				}
 
 				/*
 				 * Recalculate the transmit timer / rtt.
@@ -2660,12 +2651,7 @@ tcp_do_segment(struct tcpcb *tp, struct mbuf *m, struct tcphdr *th,
 						 * we have less than ssthresh
 						 * worth of data in flight.
 						 */
-						if (V_tcp_do_newsack) {
-							awnd = tcp_compute_pipe(tp);
-						} else {
-							awnd = (tp->snd_nxt - tp->snd_fack) +
-								tp->sackhint.sack_bytes_rexmit;
-						}
+						awnd = tcp_compute_pipe(tp);
 						if (awnd < tp->snd_ssthresh) {
 							tp->snd_cwnd += imax(maxseg,
 							    imin(2 * maxseg,
@@ -2829,9 +2815,11 @@ enter_recovery:
 						KASSERT((tp->t_dupacks == 2 &&
 						    tp->snd_limited == 0) ||
 						   (sent == maxseg + 1 &&
-						    tp->t_flags & TF_SENTFIN),
-						    ("%s: sent too much",
-						    __func__));
+						    tp->t_flags & TF_SENTFIN) ||
+						   (sent < 2 * maxseg &&
+						    tp->t_flags & TF_NODELAY),
+						    ("%s: sent too much: %u>%u",
+						    __func__, sent, maxseg));
 						tp->snd_limited = 2;
 					} else if (sent > 0) {
 						++tp->snd_limited;
@@ -3522,7 +3510,7 @@ tcp_dropwithreset(struct mbuf *m, struct tcphdr *th, struct tcpcb *tp,
 		if (IN_MULTICAST(ntohl(ip->ip_dst.s_addr)) ||
 		    IN_MULTICAST(ntohl(ip->ip_src.s_addr)) ||
 		    ip->ip_src.s_addr == htonl(INADDR_BROADCAST) ||
-		    in_broadcast(ip->ip_dst, m->m_pkthdr.rcvif))
+		    in_ifnet_broadcast(ip->ip_dst, m->m_pkthdr.rcvif))
 			goto drop;
 	}
 #endif
@@ -4098,11 +4086,7 @@ tcp_do_prr_ack(struct tcpcb *tp, struct tcphdr *th, struct tcpopt *to,
 	    (IN_CONGRECOVERY(tp->t_flags) &&
 	     !IN_FASTRECOVERY(tp->t_flags))) {
 		del_data = tp->sackhint.delivered_data;
-		if (V_tcp_do_newsack)
-			pipe = tcp_compute_pipe(tp);
-		else
-			pipe = (tp->snd_nxt - tp->snd_fack) +
-				tp->sackhint.sack_bytes_rexmit;
+		pipe = tcp_compute_pipe(tp);
 	} else {
 		if (tp->sackhint.prr_delivered < (tcprexmtthresh * maxseg +
 					     tp->snd_recover - tp->snd_una)) {
@@ -4206,14 +4190,19 @@ tcp_newreno_partial_ack(struct tcpcb *tp, struct tcphdr *th)
 int
 tcp_compute_pipe(struct tcpcb *tp)
 {
-	if (tp->t_fb->tfb_compute_pipe == NULL) {
-		return (tp->snd_max - tp->snd_una +
+	int pipe;
+
+	if (tp->t_fb->tfb_compute_pipe != NULL) {
+		pipe = (*tp->t_fb->tfb_compute_pipe)(tp);
+	} else if (V_tcp_do_newsack) {
+		pipe = tp->snd_max - tp->snd_una +
 			tp->sackhint.sack_bytes_rexmit -
 			tp->sackhint.sacked_bytes -
-			tp->sackhint.lost_bytes);
+			tp->sackhint.lost_bytes;
 	} else {
-		return((*tp->t_fb->tfb_compute_pipe)(tp));
+		pipe = tp->snd_nxt - tp->snd_fack + tp->sackhint.sack_bytes_rexmit;
 	}
+	return (imax(pipe, 0));
 }
 
 uint32_t

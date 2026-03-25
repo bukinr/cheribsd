@@ -368,7 +368,7 @@ page_fault_handler(struct trapframe *frame, int usermode)
 		 * Enable interrupts for the duration of the page fault. For
 		 * user faults this was done already in do_trap_user().
 		 */
-		if ((frame->tf_sstatus & SSTATUS_SIE) != 0)
+		if ((frame->tf_sstatus & SSTATUS_SPIE) != 0)
 			intr_enable();
 
 		if (stval >= VM_MIN_KERNEL_ADDRESS) {
@@ -395,7 +395,7 @@ page_fault_handler(struct trapframe *frame, int usermode)
 			 * UNRESOLVED, then there's no point in trying the pmap
 			 * again.
 			 */
-			ftype = VM_PROT_READ | VM_PROT_READ_CAP;
+			ftype = VM_PROT_READ | VM_PROT_CAP;
 			goto skip_pmap;
 		}
 	}
@@ -407,9 +407,9 @@ page_fault_handler(struct trapframe *frame, int usermode)
 		ftype = VM_PROT_EXECUTE;
 #if __has_feature(capabilities)
 	} else if (frame->tf_scause == SCAUSE_STORE_AMO_CAP_PAGE_FAULT) {
-		ftype = VM_PROT_WRITE | VM_PROT_WRITE_CAP;
+		ftype = VM_PROT_WRITE | VM_PROT_CAP;
 	} else if (frame->tf_scause == SCAUSE_LOAD_CAP_PAGE_FAULT) {
-		ftype = VM_PROT_READ | VM_PROT_READ_CAP;
+		ftype = VM_PROT_READ | VM_PROT_CAP;
 #endif
 	} else {
 		ftype = VM_PROT_READ;

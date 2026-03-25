@@ -237,8 +237,7 @@ sys_execve(struct thread *td, struct execve_args *uap)
 	error = pre_execve(td, &oldvmspace);
 	if (error != 0)
 		return (error);
-	error = exec_copyin_args(&args, uap->fname, UIO_USERSPACE,
-	    uap->argv, uap->envv);
+	error = exec_copyin_args(&args, uap->fname, uap->argv, uap->envv);
 	if (error == 0)
 		error = kern_execve(td, &args, NULL, oldvmspace);
 	post_execve(td, error, oldvmspace);
@@ -263,8 +262,7 @@ sys_fexecve(struct thread *td, struct fexecve_args *uap)
 	error = pre_execve(td, &oldvmspace);
 	if (error != 0)
 		return (error);
-	error = exec_copyin_args(&args, NULL, UIO_SYSSPACE,
-	    uap->argv, uap->envv);
+	error = exec_copyin_args(&args, NULL, uap->argv, uap->envv);
 	if (error == 0) {
 		args.fd = uap->fd;
 		error = kern_execve(td, &args, NULL, oldvmspace);
@@ -294,8 +292,7 @@ sys___mac_execve(struct thread *td, struct __mac_execve_args *uap)
 	error = pre_execve(td, &oldvmspace);
 	if (error != 0)
 		return (error);
-	error = exec_copyin_args(&args, uap->fname, UIO_USERSPACE,
-	    uap->argv, uap->envv);
+	error = exec_copyin_args(&args, uap->fname, uap->argv, uap->envv);
 	if (error == 0)
 		error = kern_execve(td, &args, uap->mac_p, oldvmspace);
 	post_execve(td, error, oldvmspace);
@@ -1169,6 +1166,8 @@ exec_new_vmspace(struct image_params *imgp, struct sysentvec *sv)
 
 	EVENTHANDLER_DIRECT_INVOKE(process_exec, p, imgp);
 
+	p->p_sysent = sv;
+
 	/*
 	 * Blow away entire process VM, if address space not shared,
 	 * otherwise, create a new VM space so that other threads are
@@ -1309,17 +1308,16 @@ exec_map_stack(struct image_params *imgp)
 	}
 
 #if __has_feature(capabilities)
-	perms = (~CHERI_PROT2PERM_MASK | vm_map_prot2perms(stack_prot)) &
-	    CHERI_CAP_USER_DATA_PERMS;
+        perms = vm_prot2perms(CHERI_CAP_USER_DATA_PERMS, stack_prot);
 #ifdef __CHERI_PURE_CAPABILITY__
 	imgp->stack = (void *)cheri_perms_and(stack_top, perms);
 #else
 	if (sv->sv_flags & SV_CHERI)
 		imgp->stack = cheri_capability_build_user_data(perms,
-		    stack_addr, ssiz, ssiz);
+		    stack_addr, ssiz, stack_top);
 	else
 		imgp->stack = cheri_capability_build_inexact_user_data(perms,
-		    stack_addr, ssiz, stack_top - stack_addr);
+		    stack_addr, ssiz, stack_top);
 #endif
 
 	if (sv->sv_flags & SV_CHERI) {
@@ -1347,7 +1345,8 @@ exec_map_stack(struct image_params *imgp)
 		imgp->strings = (void *)strings_addr;
 #else
 		imgp->strings = cheri_capability_build_user_data(
-		    CHERI_CAP_USER_DATA_PERMS, strings_addr, strings_size, 0);
+		    CHERI_CAP_USER_DATA_PERMS, strings_addr, strings_size,
+		    strings_addr);
 #endif
 	} else
 		imgp->strings = imgp->stack;
@@ -1445,7 +1444,7 @@ out:
 	 */
 	vmspace->vm_shp_base = (uintcap_t)cheri_capability_build_user_rwx(
 	    CHERI_CAP_USER_CODE_PERMS, sharedpage_addr,
-	    sv->sv_shared_page_len, 0);
+	    sv->sv_shared_page_len, sharedpage_addr);
 #endif
 
 	return (0);
@@ -1500,7 +1499,7 @@ get_argenv_ptr(void * __capability *arrayp, void * __capability *ptrp)
  */
 int
 exec_copyin_args(struct image_args *args, const char * __capability fname,
-    enum uio_seg segflg, void * __capability argv, void * __capability envv)
+    void * __capability argv, void * __capability envv)
 {
 	void * __capability ptr;
 	int error;
@@ -1520,7 +1519,7 @@ exec_copyin_args(struct image_args *args, const char * __capability fname,
 	/*
 	 * Copy the file name.
 	 */
-	error = exec_args_add_fname(args, fname, segflg);
+	error = exec_args_add_fname(args, fname, UIO_USERSPACE);
 	if (error != 0)
 		goto err_exit;
 
@@ -1641,7 +1640,7 @@ exec_free_args_kva(void *cookie)
 }
 
 static void
-exec_args_kva_lowmem(void *arg __unused)
+exec_args_kva_lowmem(void *arg __unused, int flags __unused)
 {
 	SLIST_HEAD(, exec_args_kva) head;
 	struct exec_args_kva *argkva;

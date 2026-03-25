@@ -34,6 +34,7 @@
 #include <sys/kernel.h>
 #include <sys/devmap.h>
 #include <sys/proc.h>
+#include <vm/vm.h>
 
 #include <cheri/cheri.h>
 #include <cheri/cheric.h>
@@ -66,7 +67,7 @@ cheri_init_capabilities(void * __capability kroot)
 	ctemp = cheri_bounds_set(ctemp, CHERI_CAP_USER_DATA_LENGTH);
 	ctemp = cheri_perms_and(ctemp, CHERI_CAP_USER_DATA_PERMS |
 	    CHERI_CAP_USER_CODE_PERMS | CHERI_PERM_SW_VMEM);
-	userspace_root_cap = ctemp;
+	userspace_root_cap_init(ctemp);
 
 	ctemp = cheri_address_set(kroot, CHERI_SEALCAP_USERSPACE_BASE);
 	ctemp = cheri_bounds_set(ctemp, CHERI_SEALCAP_USERSPACE_LENGTH);
@@ -118,12 +119,43 @@ hybridabi_thread_setregs(struct thread *td, unsigned long entry_addr)
 
 	/* Set DDC to full user privilege. */
 	tf->tf_ddc = (uintcap_t)cheri_capability_build_user_rwx(
-	    CHERI_CAP_USER_DATA_PERMS | CHERI_PERM_SW_VMEM,
+	    CHERI_CAP_USER_DATA_PERMS | CHERI_PERMS_SWALL,
 	    CHERI_CAP_USER_DATA_BASE, CHERI_CAP_USER_DATA_LENGTH,
-	    CHERI_CAP_USER_DATA_OFFSET);
+	    CHERI_CAP_USER_DATA_BASE);
 
 	/* Use 'entry_addr' as offset of PCC. */
 	trapframe_set_elr(tf, (uintcap_t)cheri_capability_build_user_code(
 	    td, CHERI_CAP_USER_CODE_PERMS, CHERI_CAP_USER_CODE_BASE,
-	    CHERI_CAP_USER_CODE_LENGTH, entry_addr));
+	    CHERI_CAP_USER_CODE_LENGTH,
+	    CHERI_CAP_USER_CODE_BASE + entry_addr));
+}
+
+int
+vm_prot2perms(int base, vm_prot_t prot)
+{
+	int perms = 0;
+
+	if (prot & (VM_PROT_CAP | VM_PROT_NO_IMPLY_CAP)) {
+		if (prot & (VM_PROT_READ | VM_PROT_COPY))
+			perms |= CHERI_PERM_LOAD;
+		if (VM_PROT_HAS_READ_CAP(prot))
+			perms |= CHERI_PERM_LOAD_CAP | CHERI_PERM_MUTABLE_LOAD;
+		if (prot & VM_PROT_WRITE)
+			perms |= CHERI_PERM_STORE;
+		if (VM_PROT_HAS_WRITE_CAP(prot))
+			perms |= CHERI_PERM_STORE_CAP |
+			    CHERI_PERM_STORE_LOCAL_CAP;
+	} else {
+		if (prot & (VM_PROT_READ | VM_PROT_COPY))
+			perms |= CHERI_PERM_LOAD | CHERI_PERM_LOAD_CAP |
+			    CHERI_PERM_MUTABLE_LOAD;
+		if (prot & VM_PROT_WRITE)
+			perms |= CHERI_PERM_STORE | CHERI_PERM_STORE_CAP |
+			    CHERI_PERM_STORE_LOCAL_CAP;
+	}
+	if (prot & VM_PROT_EXECUTE)
+		perms |= CHERI_PERM_EXECUTE | CHERI_PERM_EXECUTIVE |
+		    CHERI_PERM_LOAD | CHERI_PERM_SYSCALL;
+
+	return ((base & ~CHERI_PERMS_RWX_MASK) | perms);
 }
