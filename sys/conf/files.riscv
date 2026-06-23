@@ -27,6 +27,7 @@ dev/xilinx/axidma.c		optional	axidma
 dev/xilinx/axidma_if.m		optional	axidma
 dev/xilinx/if_xae.c		optional	xae
 dev/xilinx/xlnx_pcib.c		optional	pci fdt xlnx_pcib
+dev/mgb/if_mgb.c		standard
 kern/msi_if.m			standard
 kern/pic_if.m			standard
 kern/subr_devmap.c		standard
