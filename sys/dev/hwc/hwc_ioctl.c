@@ -30,11 +30,6 @@
 
 /* Hardware Counters (HWC) framework. */
 
-#ifdef COMPAT_FREEBSD64
-#include <sys/abi_compat.h>
-#include <sys/sysent.h>
-#endif
-
 #include <sys/param.h>
 #include <sys/proc.h>
 #include <sys/ioccom.h>
@@ -46,6 +41,11 @@
 #include <sys/rwlock.h>
 #include <sys/smp.h>
 #include <sys/hwc.h>
+
+#ifdef COMPAT_FREEBSD64
+#include <sys/abi_compat.h>
+#include <sys/sysent.h>
+#endif
 
 #include <dev/hwc/hwc_context.h>
 #include <dev/hwc/hwc_contexthash.h>
@@ -281,11 +281,9 @@ hwc_ioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flags,
 	if (!SV_CURPROC_FLAG(SV_CHERI)) {
 		halloc64 = (struct hwc_alloc64 *)addr;
 		halloc = &local_halloc;
-		CP(*halloc64, *halloc, backend_name_len);
 		CP(*halloc64, *halloc, mode);
 		CP(*halloc64, *halloc, pid);
-		halloc->backend_name = USER_PTR(halloc64->backend_name,
-		    halloc->backend_name_len);
+		halloc->backend_name = USER_PTR_STR(halloc64->backend_name);
 	}
 #endif
 

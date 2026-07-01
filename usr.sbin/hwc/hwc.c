@@ -110,7 +110,6 @@ hwc_ctx_alloc(struct hwc_context *tc)
 		return (-1);
 
 	al.backend_name = tc->backend->name;
-	al.backend_name_len = strlen(tc->backend->name);
 	al.ident = 0;
 
 	error = ioctl(tc->fd, HWC_IOC_ALLOC, &al);

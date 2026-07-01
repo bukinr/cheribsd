@@ -53,9 +53,8 @@ struct hwc_alloc64 {
 	int		mode;
 	pid_t		pid;		/* thread mode */
 	uint64_t	backend_name;
-	size_t		backend_name_len;
 	int		ident;
-} __aligned(16);
+};
 #endif
 
 struct hwc_alloc {
@@ -64,23 +63,23 @@ struct hwc_alloc {
 	const char	* __kerncap backend_name;
 	size_t		backend_name_len;
 	int		ident;
-} __aligned(16);
+};
 
 struct hwc_configure {
 	int		event_id;
 	int		counter_id;
 	int		flags;
-} __aligned(16);
+};
 
 struct hwc_start {
 	int		counter_mask;
 	int		flags;
 	int		data;
-} __aligned(16);
+};
 
 struct hwc_stop {
 	int		counter_mask;
 	int		flags;
-} __aligned(16);
+};
 
 #endif /* !_SYS_HWC_H_ */
