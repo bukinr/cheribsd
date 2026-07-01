@@ -61,7 +61,6 @@ struct hwc_alloc {
 	int		mode;
 	pid_t		pid;		/* thread mode */
 	const char	* __kerncap backend_name;
-	size_t		backend_name_len;
 	int		ident;
 };
 
