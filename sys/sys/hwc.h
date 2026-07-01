@@ -37,6 +37,9 @@
 
 #define	HWC_MAGIC		0x42
 #define	HWC_IOC_ALLOC		_IOW(HWC_MAGIC, 0x00, struct hwc_alloc)
+#ifdef COMPAT_FREEBSD64
+#define	HWC_IOC_ALLOC64		_IOW(HWC_MAGIC, 0x00, struct hwc_alloc64)
+#endif
 #define	HWC_IOC_CONFIGURE	_IOW(HWC_MAGIC, 0x01, struct hwc_configure)
 #define	HWC_IOC_START		_IOW(HWC_MAGIC, 0x02, struct hwc_start)
 #define	HWC_IOC_STOP		_IOW(HWC_MAGIC, 0x03, struct hwc_stop)
@@ -51,16 +54,16 @@ struct hwc_alloc64 {
 	pid_t		pid;		/* thread mode */
 	uint64_t	backend_name;
 	size_t		backend_name_len;
-	uint64_t	ident;
+	int		ident;
 } __aligned(16);
 #endif
 
 struct hwc_alloc {
 	int		mode;
 	pid_t		pid;		/* thread mode */
-	const char	* __capability backend_name;
+	const char	* __kerncap backend_name;
 	size_t		backend_name_len;
-	int		* __capability ident;
+	int		ident;
 } __aligned(16);
 
 struct hwc_configure {

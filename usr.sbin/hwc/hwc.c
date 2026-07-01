@@ -109,10 +109,9 @@ hwc_ctx_alloc(struct hwc_context *tc)
 	else
 		return (-1);
 
-	al.pid = tc->pid;
 	al.backend_name = tc->backend->name;
 	al.backend_name_len = strlen(tc->backend->name);
-	al.ident = &tc->ident;
+	al.ident = 0;
 
 	error = ioctl(tc->fd, HWC_IOC_ALLOC, &al);
 	if (error) {
@@ -120,6 +119,8 @@ hwc_ctx_alloc(struct hwc_context *tc)
 		    error);
 		return (error);
 	}
+
+	tc->ident = al.ident;
 
 	sprintf(filename, "/dev/hwc_%d", tc->ident);
 

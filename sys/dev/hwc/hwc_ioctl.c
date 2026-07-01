@@ -137,6 +137,8 @@ hwc_ioctl_alloc_mode_thread(struct thread *td, struct hwc_owner *ho,
 	int error;
 	struct hwc_vm *vm;
 
+	dprintf("%s\n", __func__);
+
 	/* Check if the owner have this pid configured already. */
 	ctx = hwc_owner_lookup_ctx(ho, halloc->pid);
 	if (ctx)
@@ -152,11 +154,7 @@ hwc_ioctl_alloc_mode_thread(struct thread *td, struct hwc_owner *ho,
 	ctx->mode = HWC_MODE_THREAD;
 	ctx->hwc_td = td;
 
-	error = copyout(&ctx->ident, halloc->ident, sizeof(int));
-	if (error) {
-		hwc_ctx_free(ctx);
-		return (error);
-	}
+	halloc->ident = ctx->ident;
 
 	/* Now get the victim proc. */
 	p = pfind(halloc->pid);
@@ -284,6 +282,8 @@ hwc_ioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flags,
 		halloc64 = (struct hwc_alloc64 *)addr;
 		halloc = &local_halloc;
 		CP(*halloc64, *halloc, backend_name_len);
+		CP(*halloc64, *halloc, mode);
+		CP(*halloc64, *halloc, pid);
 		halloc->backend_name = USER_PTR(halloc64->backend_name,
 		    halloc->backend_name_len);
 	}
@@ -291,9 +291,17 @@ hwc_ioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flags,
 
 	switch (cmd) {
 	case HWC_IOC_ALLOC:
+#ifdef COMPAT_FREEBSD64
+	case HWC_IOC_ALLOC64:
+#endif
 		error = hwc_ioctl_alloc(td, halloc);
 		return (error);
 	default:
 		return (ENXIO);
 	};
+
+#ifdef COMPAT_FREEBSD64
+	if (!SV_CURPROC_FLAG(SV_CHERI))
+		CP(*halloc, *halloc64, ident);
+#endif
 }
