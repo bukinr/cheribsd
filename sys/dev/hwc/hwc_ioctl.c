@@ -290,7 +290,9 @@ hwc_ioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flags,
 	case HWC_IOC_ALLOC64:
 #endif
 		error = hwc_ioctl_alloc(td, halloc);
-		return (error);
+		if (error)
+			return (error);
+		break;
 	default:
 		return (ENXIO);
 	};
