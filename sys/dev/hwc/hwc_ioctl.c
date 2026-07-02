@@ -132,7 +132,6 @@ hwc_ioctl_alloc_mode_thread(struct thread *td, struct hwc_owner *ho,
     struct hwc_backend *backend, struct hwc_alloc *halloc)
 {
 	struct hwc_context *ctx, *ctx1;
-	char path[MAXPATHLEN];
 	struct proc *p;
 	int error;
 	struct hwc_vm *vm;
@@ -153,8 +152,6 @@ hwc_ioctl_alloc_mode_thread(struct thread *td, struct hwc_owner *ho,
 	ctx->hwc_owner = ho;
 	ctx->mode = HWC_MODE_THREAD;
 	ctx->hwc_td = td;
-
-	halloc->ident = ctx->ident;
 
 	/* Now get the victim proc. */
 	p = pfind(halloc->pid);
@@ -183,13 +180,13 @@ hwc_ioctl_alloc_mode_thread(struct thread *td, struct hwc_owner *ho,
 	ctx->proc = p;
 	PROC_UNLOCK(p);
 
-	sprintf(path, "hwc_%d", ctx->ident);
-
-	error = hwc_vm_alloc(0, 0, path, &vm);
+	error = hwc_vm_alloc(0, 0, &vm);
 	if (error) {
 		hwc_ctx_free(ctx);
 		return (error);
 	}
+
+	halloc->fd = vm->fd;
 
 	ctx->vm = vm;
 	vm->ctx = ctx;
@@ -300,6 +297,6 @@ hwc_ioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flags,
 
 #ifdef COMPAT_FREEBSD64
 	if (!SV_CURPROC_FLAG(SV_CHERI))
-		CP(*halloc, *halloc64, ident);
+		CP(*halloc, *halloc64, fd);
 #endif
 }
