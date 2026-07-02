@@ -301,4 +301,6 @@ hwc_ioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flags,
 	if (!SV_CURPROC_FLAG(SV_CHERI))
 		CP(*halloc, *halloc64, fd);
 #endif
+
+	return (0);
 }
