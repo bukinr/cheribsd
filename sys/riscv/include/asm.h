@@ -78,7 +78,7 @@
  * Abstract CSR manipulation that requires different
  * instructions across RV64, xcheri and RV64Y.
  */
-#ifdef __riscv_xcheri
+#if defined(__riscv_xcheri)
 #define	GET_DDC(rd)				\
 	cspecialr	CAP(rd), ddc
 
@@ -87,7 +87,27 @@
 
 #define	GET_PCC(rd)				\
 	cspecialr	CAP(rd), pcc
-#else /* !__riscv_xcheri */
+#elif defined(__riscv_zcherihybrid)
+/*
+ * Zcheri hybrid is required for DDC
+ * Note: these macros require capability mode
+ * to use CLEN registers.
+ */
+#define	GET_DDC(rd)				\
+	csrr		CAP(rd), ddc
+
+#define	SET_DDC(rs)				\
+	csrw		ddc, CAP(rs)
+
+#define	GET_UTIDC(rd)				\
+	csrr		CAP(rd), utidc
+
+#define	SET_UTIDC(rd)				\
+	csrw		utidc, CAP(rd)
+
+#define	GET_PCC(rd)				\
+	auipc		CAP(rd), 0
+#elif defined(__riscv_zyhybrid)
 /*
  * RVY hybrid is required for DDC
  * Note: these macros require capability mode
@@ -99,32 +119,18 @@
 #define	SET_DDC(rs)				\
 	csrw		ddc, rs
 
+#define	GET_UTIDC(rd)				\
+	csrr		rd, utidc
+
+#define	SET_UTIDC(rd)				\
+	csrw		utidc, rd
+
 #define	GET_PCC(rd)				\
 	auipc		rd, 0
-#endif /* !__riscv_xcheri */
+#endif /* __riscv_zyhybrid */
 
 
-#if __has_feature(capabilities)
-#ifdef __riscv_xcheri
-#define	CSRR_CAP(rd, csrn)			\
-	cspecialr	CAP(rd), csrn ## c
-
-#define	CSRW_CAP(csrn, rs)			\
-	cspecialw	csrn ## c, CAP(rs)
-
-#define	CSRRW_CAP(rd, csrn, rs)				\
-	cspecialrw	CAP(rd), csrn ## c, CAP(rs)
-#else
-#define	CSRR_CAP(rd, csrn)			\
-	csrr		rd, csrn ## c
-
-#define	CSRW_CAP(csrn, rs)			\
-	csrw		csrn ## c, rs
-
-#define	CSRRW_CAP(rd, csrn, rs)			\
-	csrrw		rd, csrn ## c, rs
-#endif
-#else
+#if !__has_feature(capabilities) || defined(__riscv_y)
 #define	CSRR_CAP(rd, csrn)			\
 	csrr		rd, csrn
 
@@ -133,6 +139,24 @@
 
 #define	CSRRW_CAP(rd, csrn, rs)			\
 	csrrw		rd, csrn, rs
+#elif defined(__riscv_xcheri)
+#define	CSRR_CAP(rd, csrn)			\
+	cspecialr	CAP(rd), csrn ## c
+
+#define	CSRW_CAP(csrn, rs)			\
+	cspecialw	csrn ## c, CAP(rs)
+
+#define	CSRRW_CAP(rd, csrn, rs)				\
+	cspecialrw	CAP(rd), csrn ## c, CAP(rs)
+#elif defined(__riscv_zcheripurecap)
+#define	CSRR_CAP(rd, csrn)			\
+	csrr		CAP(rd), csrn ## c
+
+#define	CSRW_CAP(csrn, rs)			\
+	csrw		csrn ## c, CAP(rs)
+
+#define	CSRRW_CAP(rd, csrn, rs)			\
+	csrrw		CAP(rd), csrn ## c, CAP(rs)
 #endif
 
 /*
