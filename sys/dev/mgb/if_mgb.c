@@ -448,7 +448,7 @@ mgb_attach_pre(if_ctx_t ctx)
 	}
 
 #define	VR_MII_GEN2_4_MPLL_CTRL0	0x8078
-#define VR_MII_GEN2_4_MPLL_CTRL1                0x8079
+#define	VR_MII_GEN2_4_MPLL_CTRL1	0x8079
 
 	uint32_t reg;
 	reg = mgb_sgmii_read(sc, MDIO_MMD_VEND2, VR_MII_GEN2_4_MPLL_CTRL0);
@@ -480,8 +480,6 @@ mgb_attach_pre(if_ctx_t ctx)
 	scctx->isc_media = &miid->mii_media;
 #endif
 
-printf("%s\n", __func__);
-
 	scctx->isc_msix_bar = pci_msix_table_bar(sc->dev);
 	/** Setup PBA BAR **/
 	rid = pci_msix_pba_bar(sc->dev);
@@ -495,7 +493,6 @@ printf("%s\n", __func__);
 		}
 	}
 
-printf("%s 6 gen addr\n", __func__);
 #if 0
 	mgb_get_ethaddr(sc, &hwaddr);
 	if (ETHER_IS_BROADCAST(hwaddr.octet) ||
@@ -503,23 +500,17 @@ printf("%s 6 gen addr\n", __func__);
 	    ETHER_IS_ZERO(hwaddr.octet))
 #endif
 		ether_gen_addr(iflib_get_ifp(ctx), &hwaddr);
-printf("%s 7\n", __func__);
 
 	/*
 	 * XXX: if the MAC address was generated the linux driver
 	 * writes it back to the device.
 	 */
 	iflib_set_mac(ctx, hwaddr.octet);
-printf("%s 8\n", __func__);
 
 	/* Map all vectors to vector 0 (admin interrupts) by default. */
 	CSR_WRITE_REG(sc, MGB_INTR_VEC_RX_MAP, 0);
 	CSR_WRITE_REG(sc, MGB_INTR_VEC_TX_MAP, 0);
 	CSR_WRITE_REG(sc, MGB_INTR_VEC_OTHER_MAP, 0);
-printf("%s 9 ok\n", __func__);
-
-	//CSR_UPDATE_REG(sc, MGB_INTR_VEC_RX_MAP,
-	//    MGB_INTR_VEC_MAP(1, 0));
 
 	iflib_link_state_change(ctx, LINK_STATE_UP, IF_Mbps(1000));
 
@@ -1041,6 +1032,8 @@ mgb_isc_txd_encap(void *xsc , if_pkt_info_t ipi)
 	struct mgb_ring_desc *txd;
 	bus_dma_segment_t *segs;
 	qidx_t pidx, nsegs;
+	uint32_t ctl;
+	int count;
 	int i;
 
 	KASSERT(ipi->ipi_qsidx == 0,
@@ -1052,23 +1045,15 @@ mgb_isc_txd_encap(void *xsc , if_pkt_info_t ipi)
 	segs = ipi->ipi_segs;
 	nsegs = ipi->ipi_nsegs;
 
-	uint32_t ctl;
-
-#if 1
-	int count;
 	count = 0;
 	for (i = 0; i < nsegs; i++)
 		count += segs[i].ds_len;
-#endif
-
-//printf("%s: nsegs %d\n", __func__, nsegs);
 
 	/* For each seg, create a descriptor */
-	for (i = 0; i < nsegs; i++) {
-//printf("%s: pidx %d\n", __func__, pidx);
-		//KASSERT(nsegs == 1, ("Multisegment packet !!!!!\n"));
+	for (i = 0; i < nsegs; ++i) {
 		txd = &rdata->ring[pidx];
-		ctl = (segs[i].ds_len & MGB_DESC_CTL_BUFLEN_MASK) | MGB_DESC_CTL_FCS;
+		ctl = (segs[i].ds_len & MGB_DESC_CTL_BUFLEN_MASK) |
+		    MGB_DESC_CTL_FCS;
 		if (i == 0)
 			ctl |= MGB_TX_DESC_CTL_FS;
 		if (i == (nsegs - 1))
@@ -1078,10 +1063,8 @@ mgb_isc_txd_encap(void *xsc , if_pkt_info_t ipi)
 		    segs[i].ds_addr));
 		txd->addr.high = htole32(CSR_TRANSLATE_ADDR_HIGH32(
 		    segs[i].ds_addr));
-		txd->sts = htole32(
-		    (count << 16) & MGB_DESC_FRAME_LEN_MASK);
+		txd->sts = htole32((count << 16) & MGB_DESC_FRAME_LEN_MASK);
 		pidx = MGB_NEXT_RING_IDX(pidx);
-		mb();
 	}
 	ipi->ipi_new_pidx = pidx;
 	return (0);
@@ -1096,8 +1079,6 @@ mgb_isc_txd_flush(void *xsc, uint16_t txqid, qidx_t pidx)
 	KASSERT(txqid == 0, ("tried to flush TX Channel %d.\n", txqid));
 	sc = xsc;
 	rdata = &sc->tx_ring_data;
-
-//printf("%s: pidx %d\n", __func__, pidx);
 
 	if (rdata->last_tail != pidx) {
 		rdata->last_tail = pidx;
@@ -1275,7 +1256,6 @@ mgb_test_bar(struct mgb_softc *sc)
 	uint32_t id_rev, dev_id;
 
 	id_rev = CSR_READ_REG(sc, 0);
-printf("%s: id_rev %x\n", __func__, id_rev);
 	dev_id = id_rev >> 16;
 	if (dev_id == MGB_LAN7430_DEVICE_ID ||
 	    dev_id == MGB_LAN7431_DEVICE_ID ||
@@ -1540,15 +1520,12 @@ mgb_hw_init(struct mgb_softc *sc)
 {
 	int error = 0;
 
-printf("%s 1\n", __func__);
 	error = mgb_hw_reset(sc);
 	if (error != 0)
 		goto fail;
 
-printf("%s 2\n", __func__);
 	mgb_mac_init(sc);
 
-printf("%s 3\n", __func__);
 	error = mgb_phy_reset(sc);
 	if (error != 0)
 		goto fail;
@@ -1565,11 +1542,9 @@ printf("%s 3\n", __func__);
 	}
 	CSR_WRITE_REG(sc, SGMII_CTL, sgmii_ctl);
 
-printf("%s 4\n", __func__);
 	error = mgb_dmac_reset(sc);
 	if (error != 0)
 		goto fail;
-printf("%s ok\n", __func__);
 
 fail:
 	return (error);
@@ -1602,15 +1577,10 @@ static int
 mgb_phy_reset(struct mgb_softc *sc)
 {
 
-printf("%s\n", __func__);
 	CSR_UPDATE_BYTE(sc, MGB_PMT_CTL, MGB_PHY_RESET);
-printf("%s 1\n", __func__);
 	if (mgb_wait_for_bits(sc, MGB_PMT_CTL, 0, MGB_PHY_RESET) ==
-	    MGB_STS_TIMEOUT) {
-printf("%s 2\n", __func__);
+	    MGB_STS_TIMEOUT)
 		return (MGB_STS_TIMEOUT);
-}
-printf("%s 3\n", __func__);
 	return (mgb_wait_for_bits(sc, MGB_PMT_CTL, MGB_PHY_READY, 0));
 }
 
@@ -1641,8 +1611,6 @@ mgb_wait_for_bits(struct mgb_softc *sc, int reg, int set_bits, int clear_bits)
 		if ((val & set_bits) == set_bits && (val & clear_bits) == 0)
 			return (MGB_STS_OK);
 	} while (i++ < MGB_TIMEOUT);
-
-printf("%s: timeout\n", __func__);
 
 	return (MGB_STS_TIMEOUT);
 }
