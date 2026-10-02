@@ -130,7 +130,7 @@
  *
  **/
 /* In linux driver these numbers are 50 and 65 for tx and rx .... */
-#define MGB_DMA_RING_SIZE		16 /* in programming guide, this number is 100 */
+#define MGB_DMA_RING_SIZE		1024 /* in programming guide, this number is 100 */
 #define MGB_DMA_MAXSEGS			32
 #define MGB_DMA_REG(reg, _channel)	((reg) | ((_channel) << 6))
 #define MGB_DMA_RING_LIST_SIZE		\
