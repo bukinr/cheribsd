@@ -341,6 +341,7 @@ struct mgb_softc {
 	struct mgb_ring_data		 rx_ring_data;
 	struct mgb_ring_data		 tx_ring_data;
 
+	bool				sgmii;
 };
 
 #endif /* _IF_MGB_H_ */

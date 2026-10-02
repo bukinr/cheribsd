@@ -87,18 +87,23 @@
 #include "miibus_if.h"
 
 /* MDIO Manageable Devices (MMDs). */
-#define MDIO_MMD_PMAPMD         1       /* Physical Medium Attachment/
-                                         * Physical Medium Dependent */
-#define MDIO_MMD_WIS            2       /* WAN Interface Sublayer */
-#define MDIO_MMD_PCS            3       /* Physical Coding Sublayer */
-#define MDIO_MMD_PHYXS          4       /* PHY Extender Sublayer */
-#define MDIO_MMD_DTEXS          5       /* DTE Extender Sublayer */
-#define MDIO_MMD_TC             6       /* Transmission Convergence */
-#define MDIO_MMD_AN             7       /* Auto-Negotiation */
-#define MDIO_MMD_POWER_UNIT     13      /* PHY Power Unit */
-#define MDIO_MMD_C22EXT         29      /* Clause 22 extension */
-#define MDIO_MMD_VEND1          30      /* Vendor specific 1 */
-#define MDIO_MMD_VEND2          31      /* Vendor specific 2 */
+#define	MDIO_MMD_PMAPMD		1	/*
+					 * Physical Medium Attachment
+					 * Physical Medium Dependent
+					 */
+#define	MDIO_MMD_WIS		2	/* WAN Interface Sublayer */
+#define	MDIO_MMD_PCS		3	/* Physical Coding Sublayer */
+#define	MDIO_MMD_PHYXS		4	/* PHY Extender Sublayer */
+#define	MDIO_MMD_DTEXS		5	/* DTE Extender Sublayer */
+#define	MDIO_MMD_TC		6	/* Transmission Convergence */
+#define	MDIO_MMD_AN		7	/* Auto-Negotiation */
+#define	MDIO_MMD_POWER_UNIT	13	/* PHY Power Unit */
+#define	MDIO_MMD_C22EXT		29	/* Clause 22 extension */
+#define	MDIO_MMD_VEND1		30	/* Vendor specific 1 */
+#define	MDIO_MMD_VEND2		31	/* Vendor specific 2 */
+
+#define	VR_MII_GEN2_4_MPLL_CTRL0	0x8078
+#define	VR_MII_GEN2_4_MPLL_CTRL1	0x8079
 
 static const pci_vendor_info_t mgb_vendor_info_array[] = {
 	PVID(MGB_MICROCHIP_VENDOR_ID, MGB_LAN7430_DEVICE_ID,
@@ -384,12 +389,12 @@ mgb_attach_pre(if_ctx_t ctx)
 {
 	struct mgb_softc *sc;
 	if_softc_ctx_t scctx;
-	//int error, phyaddr, rid;
-	int error, rid;
+	int error, phyaddr, rid;
 	struct ether_addr hwaddr;
-	//struct mii_data *miid;
+	struct mii_data *miid;
 
 	sc = iflib_get_softc(ctx);
+	sc->sgmii = true;
 	sc->ctx = ctx;
 	sc->dev = iflib_get_dev(ctx);
 	scctx = iflib_get_softc_ctx(ctx);
@@ -447,16 +452,12 @@ mgb_attach_pre(if_ctx_t ctx)
 		goto fail;
 	}
 
-#define	VR_MII_GEN2_4_MPLL_CTRL0	0x8078
-#define	VR_MII_GEN2_4_MPLL_CTRL1	0x8079
-
 	uint32_t reg;
 	reg = mgb_sgmii_read(sc, MDIO_MMD_VEND2, VR_MII_GEN2_4_MPLL_CTRL0);
 	printf("%s: MPLL CONTROL0 %x\n", __func__, reg);
 	reg = mgb_sgmii_read(sc, MDIO_MMD_VEND2, VR_MII_GEN2_4_MPLL_CTRL1);
 	printf("%s: MPLL CONTROL1 %x\n", __func__, reg);
 
-#if 0
 	switch (pci_get_device(sc->dev)) {
 	case MGB_LAN7430_DEVICE_ID:
 		phyaddr = 1;
@@ -467,18 +468,19 @@ mgb_attach_pre(if_ctx_t ctx)
 		break;
 	}
 
-	/* XXX: Would be nice(r) if locked methods were here */
-	error = mii_attach(sc->dev, &sc->miibus, iflib_get_ifp(ctx),
-	    mgb_media_change, mgb_media_status,
-	    BMSR_DEFCAPMASK, phyaddr, MII_OFFSET_ANY, MIIF_DOPAUSE);
-	if (error != 0) {
-		device_printf(sc->dev, "Failed to attach MII interface\n");
-		goto fail;
+	if (!sc->sgmii) {
+		/* XXX: Would be nice(r) if locked methods were here */
+		error = mii_attach(sc->dev, &sc->miibus, iflib_get_ifp(ctx),
+		    mgb_media_change, mgb_media_status,
+		    BMSR_DEFCAPMASK, phyaddr, MII_OFFSET_ANY, MIIF_DOPAUSE);
+		if (error != 0) {
+			device_printf(sc->dev,
+			    "Failed to attach MII interface\n");
+			goto fail;
+		}
+		miid = device_get_softc(sc->miibus);
+		scctx->isc_media = &miid->mii_media;
 	}
-
-	miid = device_get_softc(sc->miibus);
-	scctx->isc_media = &miid->mii_media;
-#endif
 
 	scctx->isc_msix_bar = pci_msix_table_bar(sc->dev);
 	/** Setup PBA BAR **/
@@ -661,11 +663,10 @@ static void
 mgb_init(if_ctx_t ctx)
 {
 	struct mgb_softc *sc;
-	//struct mii_data *miid;
-	//int error;
+	struct mii_data *miid;
+	int error;
 
 	sc = iflib_get_softc(ctx);
-	//miid = device_get_softc(sc->miibus);
 	device_printf(sc->dev, "running init ...\n");
 
 	mgb_dma_init(sc);
@@ -677,13 +678,15 @@ mgb_init(if_ctx_t ctx)
 	    MGB_RFE_ALLOW_MULTICAST |
 	    MGB_RFE_ALLOW_UNICAST);
 
-#if 0
+	if (sc->sgmii)
+		return;
+
+	miid = device_get_softc(sc->miibus);
 	error = mii_mediachg(miid);
 	/* Not much we can do if this fails. */
 	if (error)
 		device_printf(sc->dev, "%s: mii_mediachg returned %d", __func__,
 		    error);
-#endif
 }
 
 #if 0
@@ -1603,9 +1606,6 @@ mgb_wait_for_bits(struct mgb_softc *sc, int reg, int set_bits, int clear_bits)
 		 * XXX: Datasheets states delay should be > 5 microseconds
 		 * for device reset.
 		 */
-		DELAY(100);
-		DELAY(10000);
-		DELAY(10000);
 		DELAY(10000);
 		val = CSR_READ_REG(sc, reg);
 		if ((val & set_bits) == set_bits && (val & clear_bits) == 0)
