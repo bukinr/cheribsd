@@ -1536,7 +1536,7 @@ mgb_hw_init(struct mgb_softc *sc)
 	/* SGMII */
 	uint32_t sgmii_ctl;
 	sgmii_ctl = CSR_READ_REG(sc, SGMII_CTL);
-	if (sg->sgmii) {
+	if (sc->sgmii) {
 		sgmii_ctl |= SGMII_CTL_SGMII_ENABLE_;
 		sgmii_ctl &= ~SGMII_CTL_SGMII_POWER_DN_;
 	} else {
