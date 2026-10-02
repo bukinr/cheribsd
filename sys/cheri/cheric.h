@@ -141,18 +141,14 @@
 
 #endif /* __WANT_OLD_CHERI_MACROS */
 
-#ifdef __riscv
-#ifndef __riscv_xcheri
+#if defined(__riscv_y) || defined(__riscv_zcheripurecap)
 /* CLoadTags not available, just use gettag(load) instead. */
-#define cheri_loadtags(m) \
-	cheri_gettag(     \
+#define cheri_loadtags(m)						\
+	cheri_tag_get(							\
 	    *(uintcap_t * __capability)(__cheri_tocap void * __capability)(m))
 #else
 #define	cheri_loadtags(m)						\
 	__builtin_cheri_cap_load_tags((__cheri_tocap void * __capability)(m))
-#endif
-#else
-#define	cheri_loadtags(m)	__builtin_cheri_cap_load_tags((m))
 #endif
 
 /*
