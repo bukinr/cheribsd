@@ -207,13 +207,11 @@ static device_method_t mgb_methods[] = {
 	DEVMETHOD(device_suspend,	iflib_device_suspend),
 	DEVMETHOD(device_resume,	iflib_device_resume),
 
-#if 0
 	/* MII Interface */
 	DEVMETHOD(miibus_readreg,	mgb_miibus_readreg),
 	DEVMETHOD(miibus_writereg,	mgb_miibus_writereg),
 	DEVMETHOD(miibus_linkchg,	mgb_miibus_linkchg),
 	DEVMETHOD(miibus_statchg,	mgb_miibus_statchg),
-#endif
 
 	DEVMETHOD_END
 };
@@ -311,7 +309,7 @@ static struct if_shared_ctx mgb_sctx_init = {
 	/* 2 queues per set for TX and RX (ring queue, head writeback queue) */
 	.isc_ntxqs = 2,
 
-	.isc_tx_maxsize = MGB_DMA_MAXSEGS * MCLBYTES,
+	.isc_tx_maxsize = MGB_DMA_MAXSEGS  * MCLBYTES,
 	/* .isc_tx_nsegments = MGB_DMA_MAXSEGS, */
 	.isc_tx_maxsegsize = MCLBYTES,
 
@@ -397,8 +395,6 @@ mgb_attach_pre(if_ctx_t ctx)
 	scctx = iflib_get_softc_ctx(ctx);
 
 	/* IFLIB required setup */
-	//scctx->isc_disable_msix = 0;//1;
-	//scctx->isc_vectors = 1;
 	scctx->isc_txrx = &mgb_txrx;
 	scctx->isc_tx_nsegments = MGB_DMA_MAXSEGS;
 	/* Ring desc queues */
@@ -414,8 +410,6 @@ mgb_attach_pre(if_ctx_t ctx)
 	/* XXX: Must have 1 txqset, but can have up to 4 rxqsets */
 	scctx->isc_nrxqsets = 1;
 	scctx->isc_ntxqsets = 1;
-
-	//return (ENXIO);
 
 	/* scctx->isc_tx_csum_flags = (CSUM_TCP | CSUM_UDP) |
 	    (CSUM_TCP_IPV6 | CSUM_UDP_IPV6) | CSUM_TSO */
@@ -576,7 +570,6 @@ mgb_detach(if_ctx_t ctx)
 	return (error);
 }
 
-#if 0
 static int
 mgb_media_change(if_t ifp)
 {
@@ -613,7 +606,6 @@ mgb_media_status(if_t ifp, struct ifmediareq *ifmr)
 	ifmr->ifm_active = miid->mii_media_active;
 	ifmr->ifm_status = miid->mii_media_status;
 }
-#endif
 
 static int
 mgb_tx_queues_alloc(if_ctx_t ctx, caddr_t *vaddrs, uint64_t *paddrs, int ntxqs,
@@ -856,7 +848,6 @@ mgb_admin_intr(void *xsc)
 	int qidx;
 
 	sc = xsc;
-	sc = xsc;
 	scctx = iflib_get_softc_ctx(sc->ctx);
 
 	intr_sts = CSR_READ_REG(sc, MGB_INTR_STS);
@@ -968,10 +959,6 @@ mgb_intr_enable_all(if_ctx_t ctx)
 	}
 
 	/* TX interrupts aren't needed ... */
-
-	//intr_sts = UINT32_MAX;
-	//vec_en = UINT32_MAX;
-	//dmac_enable = UINT32_MAX;
 
 	CSR_WRITE_REG(sc, MGB_INTR_ENBL_SET, intr_sts);
 	CSR_WRITE_REG(sc, MGB_INTR_VEC_ENBL_SET, vec_en);
@@ -1091,8 +1078,6 @@ mgb_isc_txd_encap(void *xsc , if_pkt_info_t ipi)
 		    segs[i].ds_addr));
 		txd->addr.high = htole32(CSR_TRANSLATE_ADDR_HIGH32(
 		    segs[i].ds_addr));
-		//txd->sts = htole32(
-		//    (segs[i].ds_len << 16) & MGB_DESC_FRAME_LEN_MASK);
 		txd->sts = htole32(
 		    (count << 16) & MGB_DESC_FRAME_LEN_MASK);
 		pidx = MGB_NEXT_RING_IDX(pidx);
@@ -1670,7 +1655,6 @@ mgb_get_ethaddr(struct mgb_softc *sc, struct ether_addr *dest)
 	CSR_READ_REG_BYTES(sc, MGB_MAC_ADDR_BASE_H, &dest->octet[4], 2);
 }
 
-#if 0
 static int
 mgb_miibus_readreg(device_t dev, int phy, int reg)
 {
@@ -1748,4 +1732,3 @@ mgb_miibus_linkchg(device_t dev)
 	sc->link_state = link_state;
 	iflib_link_state_change(sc->ctx, sc->link_state, sc->baudrate);
 }
-#endif
