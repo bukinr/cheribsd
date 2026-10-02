@@ -573,6 +573,30 @@ xlnx_pcib_release_msi(device_t pci, device_t child, int count, int *irqs)
 }
 
 static int
+xlnx_pcib_alloc_msix(device_t pci, device_t child, int *irq)
+{
+	phandle_t msi_parent;
+
+	ofw_bus_msimap(ofw_bus_get_node(pci), pci_get_rid(child),
+	    &msi_parent, NULL);
+	msi_parent = OF_xref_from_node(ofw_bus_get_node(pci));
+	return (intr_alloc_msix(pci, child, msi_parent, irq));
+}
+
+static int
+xlnx_pcib_release_msix(device_t pci, device_t child, int irq)
+{
+	phandle_t msi_parent;
+	int err;
+
+	err = ofw_bus_msimap(ofw_bus_get_node(pci), pci_get_rid(child),
+	    &msi_parent, NULL);
+	if (err != 0)
+		return (err);
+	return (intr_release_msix(pci, child, msi_parent, irq));
+}
+
+static int
 xlnx_pcib_map_msi(device_t pci, device_t child, int irq, uint64_t *addr,
     uint32_t *data)
 {
@@ -754,6 +778,22 @@ xlnx_pcib_msi_teardown_intr(device_t dev, struct intr_irqsrc *isrc,
 	return (0);
 }
 
+static int
+xlnx_pcib_msi_alloc_msix(device_t dev, device_t child, device_t *pic,
+    struct intr_irqsrc **srcs)
+{
+
+	return (xlnx_pcib_msi_alloc_msi(dev, child, 1, 1, pic, srcs));
+}
+
+static int
+xlnx_pcib_msi_release_msix(device_t dev, device_t child,
+    struct intr_irqsrc *srcs)
+{
+
+	return (0);//xlnx_pcib_msi_release_msi(dev, child, 1, srcs));
+}
+
 static device_method_t xlnx_pcib_fdt_methods[] = {
 	/* Device interface */
 	DEVMETHOD(device_probe,		xlnx_pcib_fdt_probe),
@@ -765,12 +805,16 @@ static device_method_t xlnx_pcib_fdt_methods[] = {
 	DEVMETHOD(pcib_write_config,	xlnx_pcib_write_config),
 	DEVMETHOD(pcib_alloc_msi,	xlnx_pcib_alloc_msi),
 	DEVMETHOD(pcib_release_msi,	xlnx_pcib_release_msi),
+	DEVMETHOD(pcib_alloc_msix,	xlnx_pcib_alloc_msix),
+	DEVMETHOD(pcib_release_msix,	xlnx_pcib_release_msix),
 	DEVMETHOD(pcib_map_msi,		xlnx_pcib_map_msi),
 
 	/* MSI interface */
 	DEVMETHOD(msi_alloc_msi,		xlnx_pcib_msi_alloc_msi),
 	DEVMETHOD(msi_release_msi,		xlnx_pcib_msi_release_msi),
 	DEVMETHOD(msi_map_msi,			xlnx_pcib_msi_map_msi),
+	DEVMETHOD(msi_alloc_msix,		xlnx_pcib_msi_alloc_msix),
+	DEVMETHOD(msi_release_msix,		xlnx_pcib_msi_release_msix),
 
 	/* Interrupt controller interface */
 	DEVMETHOD(pic_disable_intr,		xlnx_pcib_msi_disable_intr),

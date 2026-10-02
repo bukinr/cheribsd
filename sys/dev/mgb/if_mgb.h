@@ -33,6 +33,7 @@
 #define MGB_MICROCHIP_VENDOR_ID		0x1055
 #define MGB_LAN7430_DEVICE_ID		0x7430
 #define MGB_LAN7431_DEVICE_ID		0x7431
+#define MGB_PCI11414_DEVICE_ID		0xA041
 
 #define MGB_TIMEOUT			(500)
 
@@ -129,7 +130,7 @@
  *
  **/
 /* In linux driver these numbers are 50 and 65 for tx and rx .... */
-#define MGB_DMA_RING_SIZE		16 /* in programming guide, this number is 100 */
+#define MGB_DMA_RING_SIZE		1024 /* in programming guide, this number is 100 */
 #define MGB_DMA_MAXSEGS			32
 #define MGB_DMA_REG(reg, _channel)	((reg) | ((_channel) << 6))
 #define MGB_DMA_RING_LIST_SIZE		\
@@ -192,6 +193,22 @@
 #define MGB_MII_READ			0x0
 #define MGB_MII_WRITE			0x2
 #define MGB_MII_BUSY			0x1
+
+#define SGMII_ACC                       (0x720)
+#define SGMII_ACC_SGMII_BZY_            (1 << 31)
+#define SGMII_ACC_SGMII_WR_             (1 << 30)
+#define SGMII_ACC_SGMII_MMD_SHIFT_      (16)
+#define SGMII_ACC_SGMII_MMD_MASK_       0xf0000
+#define SGMII_ACC_SGMII_MMD_VSR_        (1 << 15)
+#define SGMII_ACC_SGMII_ADDR_SHIFT_     (0)
+#define SGMII_ACC_SGMII_ADDR_MASK_      0xffff
+#define SGMII_DATA                      (0x724)
+#define SGMII_DATA_SHIFT_               (0)
+#define SGMII_DATA_MASK_                0xffff
+#define SGMII_CTL                       (0x728)
+#define SGMII_CTL_SGMII_ENABLE_         (1 << 31)
+#define SGMII_CTL_LINK_STATUS_SOURCE_   (1 << 8)
+#define SGMII_CTL_SGMII_POWER_DN_       (1 << 1)
 
 /** Interrupt registers **/
 #define MGB_INTR_STS			0x780

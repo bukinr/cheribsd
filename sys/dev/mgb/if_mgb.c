@@ -86,11 +86,27 @@
 #include "ifdi_if.h"
 #include "miibus_if.h"
 
+/* MDIO Manageable Devices (MMDs). */
+#define MDIO_MMD_PMAPMD         1       /* Physical Medium Attachment/
+                                         * Physical Medium Dependent */
+#define MDIO_MMD_WIS            2       /* WAN Interface Sublayer */
+#define MDIO_MMD_PCS            3       /* Physical Coding Sublayer */
+#define MDIO_MMD_PHYXS          4       /* PHY Extender Sublayer */
+#define MDIO_MMD_DTEXS          5       /* DTE Extender Sublayer */
+#define MDIO_MMD_TC             6       /* Transmission Convergence */
+#define MDIO_MMD_AN             7       /* Auto-Negotiation */
+#define MDIO_MMD_POWER_UNIT     13      /* PHY Power Unit */
+#define MDIO_MMD_C22EXT         29      /* Clause 22 extension */
+#define MDIO_MMD_VEND1          30      /* Vendor specific 1 */
+#define MDIO_MMD_VEND2          31      /* Vendor specific 2 */
+
 static const pci_vendor_info_t mgb_vendor_info_array[] = {
 	PVID(MGB_MICROCHIP_VENDOR_ID, MGB_LAN7430_DEVICE_ID,
 	    "Microchip LAN7430 PCIe Gigabit Ethernet Controller"),
 	PVID(MGB_MICROCHIP_VENDOR_ID, MGB_LAN7431_DEVICE_ID,
 	    "Microchip LAN7431 PCIe Gigabit Ethernet Controller"),
+	PVID(MGB_MICROCHIP_VENDOR_ID, MGB_PCI11414_DEVICE_ID,
+	    "Microchip PCI11414 PCIe Gigabit Ethernet Controller"),
 	PVID_END
 };
 
@@ -191,11 +207,13 @@ static device_method_t mgb_methods[] = {
 	DEVMETHOD(device_suspend,	iflib_device_suspend),
 	DEVMETHOD(device_resume,	iflib_device_resume),
 
+#if 0
 	/* MII Interface */
 	DEVMETHOD(miibus_readreg,	mgb_miibus_readreg),
 	DEVMETHOD(miibus_writereg,	mgb_miibus_writereg),
 	DEVMETHOD(miibus_linkchg,	mgb_miibus_linkchg),
 	DEVMETHOD(miibus_statchg,	mgb_miibus_statchg),
+#endif
 
 	DEVMETHOD_END
 };
@@ -293,7 +311,7 @@ static struct if_shared_ctx mgb_sctx_init = {
 	/* 2 queues per set for TX and RX (ring queue, head writeback queue) */
 	.isc_ntxqs = 2,
 
-	.isc_tx_maxsize = MGB_DMA_MAXSEGS  * MCLBYTES,
+	.isc_tx_maxsize = MGB_DMA_MAXSEGS * MCLBYTES,
 	/* .isc_tx_nsegments = MGB_DMA_MAXSEGS, */
 	.isc_tx_maxsegsize = MCLBYTES,
 
@@ -321,6 +339,41 @@ static struct if_shared_ctx mgb_sctx_init = {
 
 /*********************************************************************/
 
+static int
+mgb_sgmii_read(struct mgb_softc *sc, uint8_t mmd, uint16_t addr)
+{
+	uint32_t mmd_access;
+	int ret;
+	uint32_t val;
+
+	ret = 0;
+	if (mmd > 31) {
+		printf("wrong mmd\n");
+		return (ENXIO);
+	}
+
+	//mutex_lock(&adapter->sgmii_rw_lock);
+
+	/* Load Register Address */
+	mmd_access = mmd << SGMII_ACC_SGMII_MMD_SHIFT_;
+	mmd_access |= (addr | SGMII_ACC_SGMII_BZY_);
+	CSR_WRITE_REG(sc, SGMII_ACC, mmd_access);
+
+	if (mgb_wait_for_bits(sc, SGMII_ACC, 0, SGMII_ACC_SGMII_BZY_) ==
+	    MGB_STS_TIMEOUT) {
+		printf("wait for BZY_ timeout\n");
+		goto sgmii_unlock;
+	}
+
+	val = CSR_READ_REG(sc, SGMII_DATA);
+	ret = (int)(val & SGMII_DATA_MASK_);
+
+sgmii_unlock:
+	//mutex_unlock(&adapter->sgmii_rw_lock);
+
+	return ret;
+}
+
 static void *
 mgb_register(device_t dev)
 {
@@ -333,9 +386,10 @@ mgb_attach_pre(if_ctx_t ctx)
 {
 	struct mgb_softc *sc;
 	if_softc_ctx_t scctx;
-	int error, phyaddr, rid;
+	//int error, phyaddr, rid;
+	int error, rid;
 	struct ether_addr hwaddr;
-	struct mii_data *miid;
+	//struct mii_data *miid;
 
 	sc = iflib_get_softc(ctx);
 	sc->ctx = ctx;
@@ -343,6 +397,8 @@ mgb_attach_pre(if_ctx_t ctx)
 	scctx = iflib_get_softc_ctx(ctx);
 
 	/* IFLIB required setup */
+	//scctx->isc_disable_msix = 0;//1;
+	//scctx->isc_vectors = 1;
 	scctx->isc_txrx = &mgb_txrx;
 	scctx->isc_tx_nsegments = MGB_DMA_MAXSEGS;
 	/* Ring desc queues */
@@ -358,6 +414,8 @@ mgb_attach_pre(if_ctx_t ctx)
 	/* XXX: Must have 1 txqset, but can have up to 4 rxqsets */
 	scctx->isc_nrxqsets = 1;
 	scctx->isc_ntxqsets = 1;
+
+	//return (ENXIO);
 
 	/* scctx->isc_tx_csum_flags = (CSUM_TCP | CSUM_UDP) |
 	    (CSUM_TCP_IPV6 | CSUM_UDP_IPV6) | CSUM_TSO */
@@ -395,6 +453,16 @@ mgb_attach_pre(if_ctx_t ctx)
 		goto fail;
 	}
 
+#define	VR_MII_GEN2_4_MPLL_CTRL0	0x8078
+#define VR_MII_GEN2_4_MPLL_CTRL1                0x8079
+
+	uint32_t reg;
+	reg = mgb_sgmii_read(sc, MDIO_MMD_VEND2, VR_MII_GEN2_4_MPLL_CTRL0);
+	printf("%s: MPLL CONTROL0 %x\n", __func__, reg);
+	reg = mgb_sgmii_read(sc, MDIO_MMD_VEND2, VR_MII_GEN2_4_MPLL_CTRL1);
+	printf("%s: MPLL CONTROL1 %x\n", __func__, reg);
+
+#if 0
 	switch (pci_get_device(sc->dev)) {
 	case MGB_LAN7430_DEVICE_ID:
 		phyaddr = 1;
@@ -416,6 +484,9 @@ mgb_attach_pre(if_ctx_t ctx)
 
 	miid = device_get_softc(sc->miibus);
 	scctx->isc_media = &miid->mii_media;
+#endif
+
+printf("%s\n", __func__);
 
 	scctx->isc_msix_bar = pci_msix_table_bar(sc->dev);
 	/** Setup PBA BAR **/
@@ -430,22 +501,33 @@ mgb_attach_pre(if_ctx_t ctx)
 		}
 	}
 
+printf("%s 6 gen addr\n", __func__);
+#if 0
 	mgb_get_ethaddr(sc, &hwaddr);
 	if (ETHER_IS_BROADCAST(hwaddr.octet) ||
 	    ETHER_IS_MULTICAST(hwaddr.octet) ||
 	    ETHER_IS_ZERO(hwaddr.octet))
+#endif
 		ether_gen_addr(iflib_get_ifp(ctx), &hwaddr);
+printf("%s 7\n", __func__);
 
 	/*
 	 * XXX: if the MAC address was generated the linux driver
 	 * writes it back to the device.
 	 */
 	iflib_set_mac(ctx, hwaddr.octet);
+printf("%s 8\n", __func__);
 
 	/* Map all vectors to vector 0 (admin interrupts) by default. */
 	CSR_WRITE_REG(sc, MGB_INTR_VEC_RX_MAP, 0);
 	CSR_WRITE_REG(sc, MGB_INTR_VEC_TX_MAP, 0);
 	CSR_WRITE_REG(sc, MGB_INTR_VEC_OTHER_MAP, 0);
+printf("%s 9 ok\n", __func__);
+
+	//CSR_UPDATE_REG(sc, MGB_INTR_VEC_RX_MAP,
+	//    MGB_INTR_VEC_MAP(1, 0));
+
+	iflib_link_state_change(ctx, LINK_STATE_UP, IF_Mbps(1000));
 
 	return (0);
 
@@ -494,6 +576,7 @@ mgb_detach(if_ctx_t ctx)
 	return (error);
 }
 
+#if 0
 static int
 mgb_media_change(if_t ifp)
 {
@@ -530,6 +613,7 @@ mgb_media_status(if_t ifp, struct ifmediareq *ifmr)
 	ifmr->ifm_active = miid->mii_media_active;
 	ifmr->ifm_status = miid->mii_media_status;
 }
+#endif
 
 static int
 mgb_tx_queues_alloc(if_ctx_t ctx, caddr_t *vaddrs, uint64_t *paddrs, int ntxqs,
@@ -594,11 +678,11 @@ static void
 mgb_init(if_ctx_t ctx)
 {
 	struct mgb_softc *sc;
-	struct mii_data *miid;
-	int error;
+	//struct mii_data *miid;
+	//int error;
 
 	sc = iflib_get_softc(ctx);
-	miid = device_get_softc(sc->miibus);
+	//miid = device_get_softc(sc->miibus);
 	device_printf(sc->dev, "running init ...\n");
 
 	mgb_dma_init(sc);
@@ -610,11 +694,13 @@ mgb_init(if_ctx_t ctx)
 	    MGB_RFE_ALLOW_MULTICAST |
 	    MGB_RFE_ALLOW_UNICAST);
 
+#if 0
 	error = mii_mediachg(miid);
 	/* Not much we can do if this fails. */
 	if (error)
 		device_printf(sc->dev, "%s: mii_mediachg returned %d", __func__,
 		    error);
+#endif
 }
 
 #if 0
@@ -770,6 +856,7 @@ mgb_admin_intr(void *xsc)
 	int qidx;
 
 	sc = xsc;
+	sc = xsc;
 	scctx = iflib_get_softc_ctx(sc->ctx);
 
 	intr_sts = CSR_READ_REG(sc, MGB_INTR_STS);
@@ -882,6 +969,10 @@ mgb_intr_enable_all(if_ctx_t ctx)
 
 	/* TX interrupts aren't needed ... */
 
+	//intr_sts = UINT32_MAX;
+	//vec_en = UINT32_MAX;
+	//dmac_enable = UINT32_MAX;
+
 	CSR_WRITE_REG(sc, MGB_INTR_ENBL_SET, intr_sts);
 	CSR_WRITE_REG(sc, MGB_INTR_VEC_ENBL_SET, vec_en);
 	CSR_WRITE_REG(sc, MGB_DMAC_INTR_STS, dmac_enable);
@@ -974,26 +1065,38 @@ mgb_isc_txd_encap(void *xsc , if_pkt_info_t ipi)
 	segs = ipi->ipi_segs;
 	nsegs = ipi->ipi_nsegs;
 
+	uint32_t ctl;
+
+#if 1
+	int count;
+	count = 0;
+	for (i = 0; i < nsegs; i++)
+		count += segs[i].ds_len;
+#endif
+
+//printf("%s: nsegs %d\n", __func__, nsegs);
+
 	/* For each seg, create a descriptor */
-	for (i = 0; i < nsegs; ++i) {
-		KASSERT(nsegs == 1, ("Multisegment packet !!!!!\n"));
+	for (i = 0; i < nsegs; i++) {
+//printf("%s: pidx %d\n", __func__, pidx);
+		//KASSERT(nsegs == 1, ("Multisegment packet !!!!!\n"));
 		txd = &rdata->ring[pidx];
-		txd->ctl = htole32(
-		    (segs[i].ds_len & MGB_DESC_CTL_BUFLEN_MASK ) |
-		    /*
-		     * XXX: This will be wrong in the multipacket case
-		     * I suspect FS should be for the first packet and
-		     * LS should be for the last packet
-		     */
-		    MGB_TX_DESC_CTL_FS | MGB_TX_DESC_CTL_LS |
-		    MGB_DESC_CTL_FCS);
+		ctl = (segs[i].ds_len & MGB_DESC_CTL_BUFLEN_MASK) | MGB_DESC_CTL_FCS;
+		if (i == 0)
+			ctl |= MGB_TX_DESC_CTL_FS;
+		if (i == (nsegs - 1))
+			ctl |= MGB_TX_DESC_CTL_LS | 0x04000000;
+		txd->ctl = htole32(ctl);
 		txd->addr.low = htole32(CSR_TRANSLATE_ADDR_LOW32(
 		    segs[i].ds_addr));
 		txd->addr.high = htole32(CSR_TRANSLATE_ADDR_HIGH32(
 		    segs[i].ds_addr));
+		//txd->sts = htole32(
+		//    (segs[i].ds_len << 16) & MGB_DESC_FRAME_LEN_MASK);
 		txd->sts = htole32(
-		    (segs[i].ds_len << 16) & MGB_DESC_FRAME_LEN_MASK);
+		    (count << 16) & MGB_DESC_FRAME_LEN_MASK);
 		pidx = MGB_NEXT_RING_IDX(pidx);
+		mb();
 	}
 	ipi->ipi_new_pidx = pidx;
 	return (0);
@@ -1008,6 +1111,8 @@ mgb_isc_txd_flush(void *xsc, uint16_t txqid, qidx_t pidx)
 	KASSERT(txqid == 0, ("tried to flush TX Channel %d.\n", txqid));
 	sc = xsc;
 	rdata = &sc->tx_ring_data;
+
+//printf("%s: pidx %d\n", __func__, pidx);
 
 	if (rdata->last_tail != pidx) {
 		rdata->last_tail = pidx;
@@ -1185,9 +1290,11 @@ mgb_test_bar(struct mgb_softc *sc)
 	uint32_t id_rev, dev_id;
 
 	id_rev = CSR_READ_REG(sc, 0);
+printf("%s: id_rev %x\n", __func__, id_rev);
 	dev_id = id_rev >> 16;
 	if (dev_id == MGB_LAN7430_DEVICE_ID ||
-	    dev_id == MGB_LAN7431_DEVICE_ID) {
+	    dev_id == MGB_LAN7431_DEVICE_ID ||
+	    dev_id == MGB_PCI11414_DEVICE_ID) {
 		return (0);
 	} else {
 		device_printf(sc->dev, "ID check failed.\n");
@@ -1448,19 +1555,36 @@ mgb_hw_init(struct mgb_softc *sc)
 {
 	int error = 0;
 
+printf("%s 1\n", __func__);
 	error = mgb_hw_reset(sc);
 	if (error != 0)
 		goto fail;
 
+printf("%s 2\n", __func__);
 	mgb_mac_init(sc);
 
+printf("%s 3\n", __func__);
 	error = mgb_phy_reset(sc);
 	if (error != 0)
 		goto fail;
 
+	/* SGMII */
+	uint32_t sgmii_ctl;
+	sgmii_ctl = CSR_READ_REG(sc, SGMII_CTL);
+	if (1 == 1) {
+		sgmii_ctl |= SGMII_CTL_SGMII_ENABLE_;
+		sgmii_ctl &= ~SGMII_CTL_SGMII_POWER_DN_;
+	} else {
+		sgmii_ctl &= ~SGMII_CTL_SGMII_ENABLE_;
+		sgmii_ctl |= SGMII_CTL_SGMII_POWER_DN_;
+	}
+	CSR_WRITE_REG(sc, SGMII_CTL, sgmii_ctl);
+
+printf("%s 4\n", __func__);
 	error = mgb_dmac_reset(sc);
 	if (error != 0)
 		goto fail;
+printf("%s ok\n", __func__);
 
 fail:
 	return (error);
@@ -1493,10 +1617,15 @@ static int
 mgb_phy_reset(struct mgb_softc *sc)
 {
 
+printf("%s\n", __func__);
 	CSR_UPDATE_BYTE(sc, MGB_PMT_CTL, MGB_PHY_RESET);
+printf("%s 1\n", __func__);
 	if (mgb_wait_for_bits(sc, MGB_PMT_CTL, 0, MGB_PHY_RESET) ==
-	    MGB_STS_TIMEOUT)
+	    MGB_STS_TIMEOUT) {
+printf("%s 2\n", __func__);
 		return (MGB_STS_TIMEOUT);
+}
+printf("%s 3\n", __func__);
 	return (mgb_wait_for_bits(sc, MGB_PMT_CTL, MGB_PHY_READY, 0));
 }
 
@@ -1520,10 +1649,15 @@ mgb_wait_for_bits(struct mgb_softc *sc, int reg, int set_bits, int clear_bits)
 		 * for device reset.
 		 */
 		DELAY(100);
+		DELAY(10000);
+		DELAY(10000);
+		DELAY(10000);
 		val = CSR_READ_REG(sc, reg);
 		if ((val & set_bits) == set_bits && (val & clear_bits) == 0)
 			return (MGB_STS_OK);
 	} while (i++ < MGB_TIMEOUT);
+
+printf("%s: timeout\n", __func__);
 
 	return (MGB_STS_TIMEOUT);
 }
@@ -1536,6 +1670,7 @@ mgb_get_ethaddr(struct mgb_softc *sc, struct ether_addr *dest)
 	CSR_READ_REG_BYTES(sc, MGB_MAC_ADDR_BASE_H, &dest->octet[4], 2);
 }
 
+#if 0
 static int
 mgb_miibus_readreg(device_t dev, int phy, int reg)
 {
@@ -1613,3 +1748,4 @@ mgb_miibus_linkchg(device_t dev)
 	sc->link_state = link_state;
 	iflib_link_state_change(sc->ctx, sc->link_state, sc->baudrate);
 }
+#endif
