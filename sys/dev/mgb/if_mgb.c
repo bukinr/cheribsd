@@ -667,7 +667,8 @@ mgb_init(if_ctx_t ctx)
 	int error;
 
 	sc = iflib_get_softc(ctx);
-	device_printf(sc->dev, "running init ...\n");
+	if (bootverbose)
+		device_printf(sc->dev, "running init ...\n");
 
 	mgb_dma_init(sc);
 
