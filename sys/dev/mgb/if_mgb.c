@@ -469,10 +469,8 @@ mgb_attach_pre(if_ctx_t ctx)
 	CSR_WRITE_REG(sc, MGB_INTR_VEC_TX_MAP, 0);
 	CSR_WRITE_REG(sc, MGB_INTR_VEC_OTHER_MAP, 0);
 
-	if (sc->sgmii) {
-		/* Not sure where to get link speed in case of SGMII. */
+	if (sc->sgmii)
 		iflib_link_state_change(ctx, LINK_STATE_UP, IF_Mbps(1000));
-	}
 
 	return (0);
 
