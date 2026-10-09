@@ -991,7 +991,6 @@ mgb_isc_txd_encap(void *xsc , if_pkt_info_t ipi)
 	bus_dma_segment_t *segs;
 	qidx_t pidx, nsegs;
 	uint32_t ctl;
-	int count;
 	int i;
 
 	KASSERT(ipi->ipi_qsidx == 0,
@@ -1002,10 +1001,6 @@ mgb_isc_txd_encap(void *xsc , if_pkt_info_t ipi)
 	pidx = ipi->ipi_pidx;
 	segs = ipi->ipi_segs;
 	nsegs = ipi->ipi_nsegs;
-
-	count = 0;
-	for (i = 0; i < nsegs; i++)
-		count += segs[i].ds_len;
 
 	/* For each seg, create a descriptor */
 	for (i = 0; i < nsegs; ++i) {
@@ -1021,7 +1016,8 @@ mgb_isc_txd_encap(void *xsc , if_pkt_info_t ipi)
 		    segs[i].ds_addr));
 		txd->addr.high = htole32(CSR_TRANSLATE_ADDR_HIGH32(
 		    segs[i].ds_addr));
-		txd->sts = htole32((count << 16) & MGB_DESC_FRAME_LEN_MASK);
+		txd->sts = htole32(
+		    (ipi->ipi_len << 16) & MGB_DESC_FRAME_LEN_MASK);
 		pidx = MGB_NEXT_RING_IDX(pidx);
 	}
 	ipi->ipi_new_pidx = pidx;
