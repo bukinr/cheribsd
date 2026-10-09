@@ -86,25 +86,6 @@
 #include "ifdi_if.h"
 #include "miibus_if.h"
 
-/* MDIO Manageable Devices (MMDs). */
-#define	MDIO_MMD_PMAPMD		1	/*
-					 * Physical Medium Attachment
-					 * Physical Medium Dependent
-					 */
-#define	MDIO_MMD_WIS		2	/* WAN Interface Sublayer */
-#define	MDIO_MMD_PCS		3	/* Physical Coding Sublayer */
-#define	MDIO_MMD_PHYXS		4	/* PHY Extender Sublayer */
-#define	MDIO_MMD_DTEXS		5	/* DTE Extender Sublayer */
-#define	MDIO_MMD_TC		6	/* Transmission Convergence */
-#define	MDIO_MMD_AN		7	/* Auto-Negotiation */
-#define	MDIO_MMD_POWER_UNIT	13	/* PHY Power Unit */
-#define	MDIO_MMD_C22EXT		29	/* Clause 22 extension */
-#define	MDIO_MMD_VEND1		30	/* Vendor specific 1 */
-#define	MDIO_MMD_VEND2		31	/* Vendor specific 2 */
-
-#define	VR_MII_GEN2_4_MPLL_CTRL0	0x8078
-#define	VR_MII_GEN2_4_MPLL_CTRL1	0x8079
-
 static const pci_vendor_info_t mgb_vendor_info_array[] = {
 	PVID(MGB_MICROCHIP_VENDOR_ID, MGB_LAN7430_DEVICE_ID,
 	    "Microchip LAN7430 PCIe Gigabit Ethernet Controller"),
@@ -341,41 +322,6 @@ static struct if_shared_ctx mgb_sctx_init = {
 };
 
 /*********************************************************************/
-
-static int
-mgb_sgmii_read(struct mgb_softc *sc, uint8_t mmd, uint16_t addr)
-{
-	uint32_t mmd_access;
-	int ret;
-	uint32_t val;
-
-	ret = 0;
-	if (mmd > 31) {
-		printf("wrong mmd\n");
-		return (ENXIO);
-	}
-
-	//mutex_lock(&adapter->sgmii_rw_lock);
-
-	/* Load Register Address */
-	mmd_access = mmd << SGMII_ACC_SGMII_MMD_SHIFT_;
-	mmd_access |= (addr | SGMII_ACC_SGMII_BZY_);
-	CSR_WRITE_REG(sc, SGMII_ACC, mmd_access);
-
-	if (mgb_wait_for_bits(sc, SGMII_ACC, 0, SGMII_ACC_SGMII_BZY_) ==
-	    MGB_STS_TIMEOUT) {
-		printf("wait for BZY_ timeout\n");
-		goto sgmii_unlock;
-	}
-
-	val = CSR_READ_REG(sc, SGMII_DATA);
-	ret = (int)(val & SGMII_DATA_MASK_);
-
-sgmii_unlock:
-	//mutex_unlock(&adapter->sgmii_rw_lock);
-
-	return ret;
-}
 
 static void *
 mgb_register(device_t dev)
