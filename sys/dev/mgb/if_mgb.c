@@ -485,14 +485,6 @@ mgb_attach_pre(if_ctx_t ctx)
 		goto fail;
 	}
 
-#if 0
-	uint32_t reg;
-	reg = mgb_sgmii_read(sc, MDIO_MMD_VEND2, VR_MII_GEN2_4_MPLL_CTRL0);
-	printf("%s: MPLL CONTROL0 %x\n", __func__, reg);
-	reg = mgb_sgmii_read(sc, MDIO_MMD_VEND2, VR_MII_GEN2_4_MPLL_CTRL1);
-	printf("%s: MPLL CONTROL1 %x\n", __func__, reg);
-#endif
-
 	if (!sc->sgmii) {
 		error = mgb_mii_attach(sc);
 		if (error)
