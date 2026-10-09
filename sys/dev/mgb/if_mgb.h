@@ -88,16 +88,16 @@
 
 /* Strap configuration */
 #define	STRAP_READ			0x0C
-#define	STRAP_READ_USE_RMII_EN_		(1 << 23)
-#define	STRAP_READ_USE_SGMII_EN_	(1 << 22)
-#define	STRAP_READ_RMII_EN_		(1 << 7)
-#define	STRAP_READ_SGMII_EN_		(1 << 6)
-#define	STRAP_READ_SGMII_REFCLK_	(1 << 5)
-#define	STRAP_READ_SGMII_2_5G_		(1 << 4)
-#define	STRAP_READ_BASE_X_		(1 << 3)
-#define	STRAP_READ_RGMII_TXC_DELAY_EN_	(1 << 2)
-#define	STRAP_READ_RGMII_RXC_DELAY_EN_	(1 << 1)
-#define	STRAP_READ_ADV_PM_DISABLE_	(1 << 0)
+#define	STRAP_READ_USE_RMII_EN		(1 << 23)
+#define	STRAP_READ_USE_SGMII_EN		(1 << 22)
+#define	STRAP_READ_RMII_EN		(1 << 7)
+#define	STRAP_READ_SGMII_EN		(1 << 6)
+#define	STRAP_READ_SGMII_REFCLK		(1 << 5)
+#define	STRAP_READ_SGMII_2_5G		(1 << 4)
+#define	STRAP_READ_BASE_X		(1 << 3)
+#define	STRAP_READ_RGMII_TXC_DELAY_EN	(1 << 2)
+#define	STRAP_READ_RGMII_RXC_DELAY_EN	(1 << 1)
+#define	STRAP_READ_ADV_PM_DISABLE	(1 << 0)
 
 /** FIFO Controller **/
 #define MGB_FCT_TX_CTL			0xC4
@@ -207,21 +207,21 @@
 #define MGB_MII_WRITE			0x2
 #define MGB_MII_BUSY			0x1
 
-#define SGMII_ACC                       (0x720)
-#define SGMII_ACC_SGMII_BZY_            (1 << 31)
-#define SGMII_ACC_SGMII_WR_             (1 << 30)
-#define SGMII_ACC_SGMII_MMD_SHIFT_      (16)
-#define SGMII_ACC_SGMII_MMD_MASK_       0xf0000
-#define SGMII_ACC_SGMII_MMD_VSR_        (1 << 15)
-#define SGMII_ACC_SGMII_ADDR_SHIFT_     (0)
-#define SGMII_ACC_SGMII_ADDR_MASK_      0xffff
-#define SGMII_DATA                      (0x724)
-#define SGMII_DATA_SHIFT_               (0)
-#define SGMII_DATA_MASK_                0xffff
-#define SGMII_CTL                       (0x728)
-#define SGMII_CTL_SGMII_ENABLE_         (1 << 31)
-#define SGMII_CTL_LINK_STATUS_SOURCE_   (1 << 8)
-#define SGMII_CTL_SGMII_POWER_DN_       (1 << 1)
+#define	SGMII_ACC			0x720
+#define	SGMII_ACC_SGMII_BZY		(1 << 31)
+#define	SGMII_ACC_SGMII_WR		(1 << 30)
+#define	SGMII_ACC_SGMII_MMD_SHIFT	16
+#define	SGMII_ACC_SGMII_MMD_MASK	0xf0000
+#define	SGMII_ACC_SGMII_MMD_VSR		(1 << 15)
+#define	SGMII_ACC_SGMII_ADDR_SHIFT	0
+#define	SGMII_ACC_SGMII_ADDR_MASK	0xffff
+#define	SGMII_DATA			0x724
+#define	SGMII_DATA_SHIFT		0
+#define	SGMII_DATA_MASK			0xffff
+#define	SGMII_CTL			0x728
+#define	SGMII_CTL_SGMII_ENABLE		(1 << 31)
+#define	SGMII_CTL_LINK_STATUS_SOURCE	(1 << 8)
+#define	SGMII_CTL_SGMII_POWER_DN	(1 << 1)
 
 /** Interrupt registers **/
 #define MGB_INTR_STS			0x780
