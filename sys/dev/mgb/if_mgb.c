@@ -450,12 +450,10 @@ mgb_attach_pre(if_ctx_t ctx)
 		}
 	}
 
-#if 0
 	mgb_get_ethaddr(sc, &hwaddr);
 	if (ETHER_IS_BROADCAST(hwaddr.octet) ||
 	    ETHER_IS_MULTICAST(hwaddr.octet) ||
 	    ETHER_IS_ZERO(hwaddr.octet))
-#endif
 		ether_gen_addr(iflib_get_ifp(ctx), &hwaddr);
 
 	/*
