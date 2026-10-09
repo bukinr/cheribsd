@@ -86,6 +86,19 @@
 #define MGB_PHY_RESET			0x10
 #define MGB_PHY_READY			0x80
 
+/* Strap configuration */
+#define	STRAP_READ			0x0C
+#define	STRAP_READ_USE_RMII_EN_		(1 << 23)
+#define	STRAP_READ_USE_SGMII_EN_	(1 << 22)
+#define	STRAP_READ_RMII_EN_		(1 << 7)
+#define	STRAP_READ_SGMII_EN_		(1 << 6)
+#define	STRAP_READ_SGMII_REFCLK_	(1 << 5)
+#define	STRAP_READ_SGMII_2_5G_		(1 << 4)
+#define	STRAP_READ_BASE_X_		(1 << 3)
+#define	STRAP_READ_RGMII_TXC_DELAY_EN_	(1 << 2)
+#define	STRAP_READ_RGMII_RXC_DELAY_EN_	(1 << 1)
+#define	STRAP_READ_ADV_PM_DISABLE_	(1 << 0)
+
 /** FIFO Controller **/
 #define MGB_FCT_TX_CTL			0xC4
 #define MGB_FCT_RX_CTL			0xAC

@@ -385,16 +385,49 @@ mgb_register(device_t dev)
 }
 
 static int
+mgb_mii_attach(struct mgb_softc *sc)
+{
+	struct mii_data *miid;
+	if_softc_ctx_t scctx;
+	int phyaddr;
+	int error;
+
+	scctx = iflib_get_softc_ctx(sc->ctx);
+
+	switch (pci_get_device(sc->dev)) {
+	case MGB_LAN7430_DEVICE_ID:
+		phyaddr = 1;
+		break;
+	case MGB_LAN7431_DEVICE_ID:
+	default:
+		phyaddr = MII_PHY_ANY;
+		break;
+	}
+
+	/* XXX: Would be nice(r) if locked methods were here */
+	error = mii_attach(sc->dev, &sc->miibus, iflib_get_ifp(sc->ctx),
+	    mgb_media_change, mgb_media_status,
+	    BMSR_DEFCAPMASK, phyaddr, MII_OFFSET_ANY, MIIF_DOPAUSE);
+	if (error != 0) {
+		device_printf(sc->dev, "Failed to attach MII interface\n");
+		return (error);
+	}
+
+	miid = device_get_softc(sc->miibus);
+	scctx->isc_media = &miid->mii_media;
+
+	return (0);
+}
+
+static int
 mgb_attach_pre(if_ctx_t ctx)
 {
 	struct mgb_softc *sc;
 	if_softc_ctx_t scctx;
-	int error, phyaddr, rid;
+	int error, rid;
 	struct ether_addr hwaddr;
-	struct mii_data *miid;
 
 	sc = iflib_get_softc(ctx);
-	sc->sgmii = true;
 	sc->ctx = ctx;
 	sc->dev = iflib_get_dev(ctx);
 	scctx = iflib_get_softc_ctx(ctx);
@@ -452,34 +485,18 @@ mgb_attach_pre(if_ctx_t ctx)
 		goto fail;
 	}
 
+#if 0
 	uint32_t reg;
 	reg = mgb_sgmii_read(sc, MDIO_MMD_VEND2, VR_MII_GEN2_4_MPLL_CTRL0);
 	printf("%s: MPLL CONTROL0 %x\n", __func__, reg);
 	reg = mgb_sgmii_read(sc, MDIO_MMD_VEND2, VR_MII_GEN2_4_MPLL_CTRL1);
 	printf("%s: MPLL CONTROL1 %x\n", __func__, reg);
-
-	switch (pci_get_device(sc->dev)) {
-	case MGB_LAN7430_DEVICE_ID:
-		phyaddr = 1;
-		break;
-	case MGB_LAN7431_DEVICE_ID:
-	default:
-		phyaddr = MII_PHY_ANY;
-		break;
-	}
+#endif
 
 	if (!sc->sgmii) {
-		/* XXX: Would be nice(r) if locked methods were here */
-		error = mii_attach(sc->dev, &sc->miibus, iflib_get_ifp(ctx),
-		    mgb_media_change, mgb_media_status,
-		    BMSR_DEFCAPMASK, phyaddr, MII_OFFSET_ANY, MIIF_DOPAUSE);
-		if (error != 0) {
-			device_printf(sc->dev,
-			    "Failed to attach MII interface\n");
+		error = mgb_mii_attach(sc);
+		if (error)
 			goto fail;
-		}
-		miid = device_get_softc(sc->miibus);
-		scctx->isc_media = &miid->mii_media;
 	}
 
 	scctx->isc_msix_bar = pci_msix_table_bar(sc->dev);
@@ -514,7 +531,10 @@ mgb_attach_pre(if_ctx_t ctx)
 	CSR_WRITE_REG(sc, MGB_INTR_VEC_TX_MAP, 0);
 	CSR_WRITE_REG(sc, MGB_INTR_VEC_OTHER_MAP, 0);
 
-	iflib_link_state_change(ctx, LINK_STATE_UP, IF_Mbps(1000));
+	if (sc->sgmii) {
+		/* Not sure where to get link speed in case of SGMII. */
+		iflib_link_state_change(ctx, LINK_STATE_UP, IF_Mbps(1000));
+	}
 
 	return (0);
 
@@ -1522,7 +1542,11 @@ mgb_hw_teardown(struct mgb_softc *sc)
 static int
 mgb_hw_init(struct mgb_softc *sc)
 {
-	int error = 0;
+	uint32_t sgmii_ctl;
+	uint32_t reg;
+	int error;
+
+	error = 0;
 
 	error = mgb_hw_reset(sc);
 	if (error != 0)
@@ -1534,17 +1558,18 @@ mgb_hw_init(struct mgb_softc *sc)
 	if (error != 0)
 		goto fail;
 
-	/* SGMII */
-	uint32_t sgmii_ctl;
-	sgmii_ctl = CSR_READ_REG(sc, SGMII_CTL);
-	if (sc->sgmii) {
+	/* Enable SGMII if needed. */
+	reg = CSR_READ_REG(sc, STRAP_READ);
+	if (bootverbose)
+		device_printf(sc->dev, "strap %x\n", reg);
+	if ((reg & STRAP_READ_USE_SGMII_EN_) != 0 &&
+	    (reg & STRAP_READ_SGMII_EN_) != 0) {
+		sgmii_ctl = CSR_READ_REG(sc, SGMII_CTL);
 		sgmii_ctl |= SGMII_CTL_SGMII_ENABLE_;
 		sgmii_ctl &= ~SGMII_CTL_SGMII_POWER_DN_;
-	} else {
-		sgmii_ctl &= ~SGMII_CTL_SGMII_ENABLE_;
-		sgmii_ctl |= SGMII_CTL_SGMII_POWER_DN_;
+		CSR_WRITE_REG(sc, SGMII_CTL, sgmii_ctl);
+		sc->sgmii = true;
 	}
-	CSR_WRITE_REG(sc, SGMII_CTL, sgmii_ctl);
 
 	error = mgb_dmac_reset(sc);
 	if (error != 0)
