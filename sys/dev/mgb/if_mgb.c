@@ -1492,11 +1492,11 @@ mgb_hw_init(struct mgb_softc *sc)
 	reg = CSR_READ_REG(sc, STRAP_READ);
 	if (bootverbose)
 		device_printf(sc->dev, "strap %x\n", reg);
-	if ((reg & STRAP_READ_USE_SGMII_EN_) != 0 &&
-	    (reg & STRAP_READ_SGMII_EN_) != 0) {
+	if ((reg & STRAP_READ_USE_SGMII_EN) != 0 &&
+	    (reg & STRAP_READ_SGMII_EN) != 0) {
 		sgmii_ctl = CSR_READ_REG(sc, SGMII_CTL);
-		sgmii_ctl |= SGMII_CTL_SGMII_ENABLE_;
-		sgmii_ctl &= ~SGMII_CTL_SGMII_POWER_DN_;
+		sgmii_ctl |= SGMII_CTL_SGMII_ENABLE;
+		sgmii_ctl &= ~SGMII_CTL_SGMII_POWER_DN;
 		CSR_WRITE_REG(sc, SGMII_CTL, sgmii_ctl);
 		sc->sgmii_en = true;
 	}
