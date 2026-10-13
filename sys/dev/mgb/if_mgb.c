@@ -1215,7 +1215,7 @@ mgb_test_bar(struct mgb_softc *sc)
 	    dev_id == MGB_PCI11414_DEVICE_ID) {
 		return (0);
 	} else {
-		device_printf(sc->dev, "ID check failed.\n");
+		device_printf(sc->dev, "ID check failed: 0x%x\n", dev_id);
 		return (ENXIO);
 	}
 }
