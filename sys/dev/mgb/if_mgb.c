@@ -621,9 +621,6 @@ mgb_init(if_ctx_t ctx)
 	int error;
 
 	sc = iflib_get_softc(ctx);
-	if (bootverbose)
-		device_printf(sc->dev, "running init ...\n");
-
 	mgb_dma_init(sc);
 
 	/* XXX: Turn off perfect filtering, turn on (broad|multi|uni)cast rx */
@@ -1491,7 +1488,18 @@ mgb_hw_init(struct mgb_softc *sc)
 	/* Enable SGMII if needed. */
 	reg = CSR_READ_REG(sc, STRAP_READ);
 	if (bootverbose)
-		device_printf(sc->dev, "strap %x\n", reg);
+		device_printf(sc->dev, "  Strap: %#b\n", reg,
+			"\020"
+			"\01ADV_PM_DISABLE"
+			"\02RGMII_RXC_DELAY_EN"
+			"\03RGMII_TXC_DELAY_EN"
+			"\04BASE_X"
+			"\05SGMII_2_5G"
+			"\06SGMII_REFCLK"
+			"\07SGMII_EN"
+			"\10RMII_EN"
+			"\27USE_SGMII_EN"
+			"\30USE_RMII_EN");
 	if ((reg & STRAP_READ_USE_SGMII_EN) != 0 &&
 	    (reg & STRAP_READ_SGMII_EN) != 0) {
 		sgmii_ctl = CSR_READ_REG(sc, SGMII_CTL);
