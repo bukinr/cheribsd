@@ -467,8 +467,10 @@ mgb_attach_pre(if_ctx_t ctx)
 	CSR_WRITE_REG(sc, MGB_INTR_VEC_TX_MAP, 0);
 	CSR_WRITE_REG(sc, MGB_INTR_VEC_OTHER_MAP, 0);
 
-	if (sc->sgmii_en)
+	if (sc->sgmii_en) {
+		/* Unsure which speed to set, use 1Gbps as default. */
 		iflib_link_state_change(ctx, LINK_STATE_UP, IF_Mbps(1000));
+	}
 
 	return (0);
 
@@ -1570,7 +1572,7 @@ mgb_wait_for_bits(struct mgb_softc *sc, int reg, int set_bits, int clear_bits)
 		 * XXX: Datasheets states delay should be > 5 microseconds
 		 * for device reset.
 		 */
-		DELAY(10000);
+		DELAY(100);
 		val = CSR_READ_REG(sc, reg);
 		if ((val & set_bits) == set_bits && (val & clear_bits) == 0)
 			return (MGB_STS_OK);
