@@ -53,6 +53,8 @@ cbo_zicbom_cpu_dcache_inv_range(vm_pointer_t va, vm_size_t len)
 {
 	vm_pointer_t addr;
 
+//printf("%s: %#.16lp len %lx\n", __func__, (void *)va, len);
+
 	/*
 	 * An invalidate operation makes data from store operations performed by
 	 * a set of non-coherent agents visible to the set of coherent agents at
