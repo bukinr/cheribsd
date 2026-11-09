@@ -274,6 +274,37 @@ LINUXKPI_INCLUDES=	-I$S/compat/linuxkpi/common/include \
 			-include $S/compat/linuxkpi/common/include/linux/kconfig.h
 LINUXKPI_C=		${NORMAL_C} ${LINUXKPI_INCLUDES}
 
+# DRM C flags.
+DRM_INCLUDES+=	-I${S}/dev/drm3/include
+DRM_INCLUDES+=	-I${S}/dev/drm3/include/uapi
+DRM_INCLUDES+=	-I${S}/compat/linuxkpi/common/include
+DRM_INCLUDES+=	-I${S}/compat/linuxkpi/dummy/include
+DRM_INCLUDES+=	-I${S}/dev/drm3/linuxkpi/bsd/include
+#DRM_INCLUDES+=	-I${S}/dev/drm3/linuxkpi/bsd/include/uapi
+DRM_INCLUDES+=	-I${S}/dev/drm3/linuxkpi/gplv2/include
+DRM_INCLUDES+=	-I${S}/dev/drm3
+
+DRM_CFLAGS=	${CFLAGS} ${DRM_INCLUDES}		\
+		-DLINUXKPI_VERSION=61400		\
+		-DCONFIG_DRM_EXEC			\
+		-DCONFIG_DRM_GPUVM			\
+		-DCONFIG_APERTURE_HELPERS		\
+		-DCONFIG_DRM_FBDEV_EMULATION		\
+		-DCONFIG_DRM_FBDEV_OVERALLOC=100	\
+		-DCONFIG_ARCH_HAVE_NMI_SAFE_CMPXCHG	\
+		-DCONFIG_FB				\
+		-DCONFIG_64BIT				\
+		-DCONFIG_ARM64
+
+DRM_CFLAGS+=	-include ${S}/dev/drm3/drm/drm_os_freebsd.h
+DRM_CFLAGS+=	'-DKBUILD_MODNAME="DRMv6.6"' -Wno-unused
+DRM_CFLAGS+=	-Wno-cast-qual -Wno-pointer-arith -Wno-missing-prototypes
+# Complain about unsigned long long versus uint64_t, remove -Wformat for now
+.if ${MACHINE_CPUARCH} == "aarch64"
+DRM_CFLAGS+=	-Wno-format
+.endif
+DRM_C=		${CC} -c ${DRM_CFLAGS} ${WERROR} ${PROF} ${.IMPSRC}
+
 # Infiniband C flags.  Correct include paths and omit errors that linux
 # does not honor.
 OFEDINCLUDES=	-I$S/ofed/include -I$S/ofed/include/uapi ${LINUXKPI_INCLUDES}
