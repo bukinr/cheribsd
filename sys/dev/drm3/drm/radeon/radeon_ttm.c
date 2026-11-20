@@ -194,41 +194,34 @@ static int radeon_bo_move(struct ttm_buffer_object *bo, bool evict,
 	struct radeon_device *rdev;
 	int r;
 
-printf("%s\n", __func__);
 	if (new_mem->mem_type == TTM_PL_TT) {
 		r = radeon_ttm_tt_bind(bo->bdev, bo->ttm, new_mem);
 		if (r)
 			return r;
 	}
 
-printf("%s 1\n", __func__);
 	r = ttm_bo_wait_ctx(bo, ctx);
 	if (r)
 		return r;
 
-printf("%s 2\n", __func__);
 	rdev = radeon_get_rdev(bo->bdev);
 	if (!old_mem || (old_mem->mem_type == TTM_PL_SYSTEM &&
 			 bo->ttm == NULL)) {
-printf("%s 3\n", __func__);
 		ttm_bo_move_null(bo, new_mem);
 		goto out;
 	}
-printf("%s 3\n", __func__);
 	if (old_mem->mem_type == TTM_PL_SYSTEM &&
 	    new_mem->mem_type == TTM_PL_TT) {
 		ttm_bo_move_null(bo, new_mem);
 		goto out;
 	}
 
-printf("%s 4\n", __func__);
 	if (old_mem->mem_type == TTM_PL_TT &&
 	    new_mem->mem_type == TTM_PL_SYSTEM) {
 		radeon_ttm_tt_unbind(bo->bdev, bo->ttm);
 		ttm_bo_move_null(bo, new_mem);
 		goto out;
 	}
-printf("%s 5\n", __func__);
 	if (rdev->ring[radeon_copy_ring_index(rdev)].ready &&
 	    rdev->asic->copy.copy != NULL) {
 		if ((old_mem->mem_type == TTM_PL_SYSTEM &&
@@ -247,7 +240,6 @@ printf("%s 5\n", __func__);
 		r = -ENODEV;
 	}
 
-printf("%s 6\n", __func__);
 	if (r) {
 		r = ttm_bo_move_memcpy(bo, ctx, new_mem);
 		if (r)
@@ -257,9 +249,7 @@ printf("%s 6\n", __func__);
 out:
 	/* update statistics */
 	atomic64_add(bo->base.size, &rdev->num_bytes_moved);
-printf("%s 7\n", __func__);
 	radeon_bo_move_notify(bo);
-printf("%s done\n", __func__);
 	return 0;
 }
 
