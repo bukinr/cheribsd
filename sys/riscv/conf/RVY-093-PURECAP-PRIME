@@ -17,6 +17,3 @@ options		ROOTDEVNAME=\"ufs:/dev/nda0p2\"
 nooptions	NFS_ROOT
 nooptions	MD_ROOT
 nomakeoptions	MFS_IMAGE
-
-device		drm3
-options		COMPAT_LINUXKPI
