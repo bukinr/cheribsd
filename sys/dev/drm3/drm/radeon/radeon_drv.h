@@ -118,7 +118,7 @@ SYSCTL_DECL(_hw_radeonkms);
 #define DRIVER_PATCHLEVEL	0
 
 long radeon_drm_ioctl(struct file *filp,
-		      unsigned int cmd, unsigned long arg);
+		      unsigned int cmd, uintcap_t arg);
 
 int radeon_driver_load_kms(struct drm_device *dev, unsigned long flags);
 void radeon_driver_unload_kms(struct drm_device *dev);

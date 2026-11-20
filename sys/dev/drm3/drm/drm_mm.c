@@ -126,13 +126,13 @@ static void show_leaks(struct drm_mm *mm)
 
 	list_for_each_entry(node, drm_mm_nodes(mm), node_list) {
 		if (!node->stack) {
-			DRM_ERROR("node [%08llx + %08llx]: unknown owner\n",
+			DRM_ERROR("node [%08lx + %08lx]: unknown owner\n",
 				  node->start, node->size);
 			continue;
 		}
 
 		stack_depot_snprint(node->stack, buf, BUFSZ, 0);
-		DRM_ERROR("node [%08llx + %08llx]: inserted at\n%s",
+		DRM_ERROR("node [%08lx + %08lx]: inserted at\n%s",
 			  node->start, node->size, buf);
 	}
 
@@ -536,17 +536,20 @@ int drm_mm_insert_node_in_range(struct drm_mm * const mm,
 	u64 remainder_mask;
 	bool once;
 
+printf("%s\n", __func__);
 	DRM_MM_BUG_ON(range_start > range_end);
 
 	if (unlikely(size == 0 || range_end - range_start < size))
 		return -ENOSPC;
 
+printf("%s 1\n", __func__);
 	if (rb_to_hole_size_or_zero(rb_first_cached(&mm->holes_size)) < size)
 		return -ENOSPC;
 
 	if (alignment <= 1)
 		alignment = 0;
 
+printf("%s 2\n", __func__);
 	once = mode & DRM_MM_INSERT_ONCE;
 	mode &= ~DRM_MM_INSERT_ONCE;
 
@@ -554,11 +557,13 @@ int drm_mm_insert_node_in_range(struct drm_mm * const mm,
 	for (hole = first_hole(mm, range_start, range_end, size, mode);
 	     hole;
 	     hole = once ? NULL : next_hole(mm, hole, size, mode)) {
+printf("%s 3\n", __func__);
 		u64 hole_start = __drm_mm_hole_node_start(hole);
 		u64 hole_end = hole_start + hole->hole_size;
 		u64 adj_start, adj_end;
 		u64 col_start, col_end;
 
+printf("%s 4\n", __func__);
 		if (mode == DRM_MM_INSERT_LOW && hole_start >= range_end)
 			break;
 
@@ -570,6 +575,7 @@ int drm_mm_insert_node_in_range(struct drm_mm * const mm,
 		if (mm->color_adjust)
 			mm->color_adjust(hole, color, &col_start, &col_end);
 
+printf("%s 5\n", __func__);
 		adj_start = max(col_start, range_start);
 		adj_end = min(col_end, range_end);
 
@@ -599,6 +605,7 @@ int drm_mm_insert_node_in_range(struct drm_mm * const mm,
 				    adj_end - adj_start < size)
 					continue;
 			}
+printf("%s 6\n", __func__);
 		}
 
 		node->mm = mm;
@@ -607,6 +614,7 @@ int drm_mm_insert_node_in_range(struct drm_mm * const mm,
 		node->color = color;
 		node->hole_size = 0;
 
+printf("%s 7\n", __func__);
 		__set_bit(DRM_MM_NODE_ALLOCATED_BIT, &node->flags);
 		list_add(&node->node_list, &hole->node_list);
 		drm_mm_interval_tree_add_node(hole, node);
@@ -988,7 +996,7 @@ static u64 drm_mm_dump_hole(struct drm_printer *p, const struct drm_mm_node *ent
 	size = entry->hole_size;
 	if (size) {
 		start = drm_mm_hole_node_start(entry);
-		drm_printf(p, "%#018llx-%#018llx: %llu: free\n",
+		drm_printf(p, "%#018lx-%#018lx: %lu: free\n",
 			   start, start + size, size);
 	}
 
@@ -1007,14 +1015,14 @@ void drm_mm_print(const struct drm_mm *mm, struct drm_printer *p)
 	total_free += drm_mm_dump_hole(p, &mm->head_node);
 
 	drm_mm_for_each_node(entry, mm) {
-		drm_printf(p, "%#018llx-%#018llx: %llu: used\n", entry->start,
+		drm_printf(p, "%#018lx-%#018lx: %lu: used\n", entry->start,
 			   entry->start + entry->size, entry->size);
 		total_used += entry->size;
 		total_free += drm_mm_dump_hole(p, entry);
 	}
 	total = total_free + total_used;
 
-	drm_printf(p, "total: %llu, used %llu free %llu\n", total,
+	drm_printf(p, "total: %lu, used %lu free %lu\n", total,
 		   total_used, total_free);
 }
 EXPORT_SYMBOL(drm_mm_print);

@@ -209,7 +209,7 @@ struct drm_fb_helper {
 	 */
 	struct fb_deferred_io fbdefio;
 #endif
-};
+} __subobject_use_container_bounds; //
 
 static inline struct drm_fb_helper *
 drm_fb_helper_from_client(struct drm_client_dev *client)

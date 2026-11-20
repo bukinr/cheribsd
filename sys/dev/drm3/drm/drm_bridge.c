@@ -360,10 +360,12 @@ err_reset_bridge:
 	if (ret != -EPROBE_DEFER)
 		DRM_ERROR("failed to attach bridge %pOF to encoder %s: %d\n",
 			  bridge->of_node, encoder->name, ret);
+#if 0
 	else
 		dev_err_probe(encoder->dev->dev, -EPROBE_DEFER,
 			      "failed to attach bridge %pOF to encoder %s\n",
 			      bridge->of_node, encoder->name);
+#endif
 
 	return ret;
 }

@@ -526,16 +526,26 @@ int drm_mode_getproperty_ioctl(struct drm_device *dev,
 
 static void drm_property_free_blob(struct kref *kref)
 {
+printf("%s\n", __func__);
 	struct drm_property_blob *blob =
 		container_of(kref, struct drm_property_blob, base.refcount);
 
+printf("%s 1 blob %#.16lp\n", __func__, blob);
+printf("%s 1 blob->dev %#.16lp\n", __func__, blob->dev);
+printf("%s 1 blob->dev->mc %#.16lp\n", __func__, &blob->dev->mode_config);
+printf("%s 1 blob->dev->mc->l %#.16lp\n", __func__, &blob->dev->mode_config.blob_lock);
 	mutex_lock(&blob->dev->mode_config.blob_lock);
+printf("%s 2\n", __func__);
 	list_del(&blob->head_global);
+printf("%s 3\n", __func__);
 	mutex_unlock(&blob->dev->mode_config.blob_lock);
 
+printf("%s 4\n", __func__);
 	drm_mode_object_unregister(blob->dev, &blob->base);
 
+printf("%s 5\n", __func__);
 	kvfree(blob);
+printf("%s 6\n", __func__);
 }
 
 /**
@@ -781,7 +791,7 @@ int drm_property_replace_blob_from_id(struct drm_device *dev,
 		new_blob = drm_property_lookup_blob(dev, blob_id);
 		if (new_blob == NULL) {
 			drm_dbg_atomic(dev,
-				       "cannot find blob ID %llu\n", blob_id);
+				       "cannot find blob ID %lu\n", blob_id);
 			return -EINVAL;
 		}
 

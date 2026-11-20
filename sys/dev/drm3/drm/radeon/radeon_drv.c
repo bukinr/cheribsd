@@ -32,6 +32,7 @@
 #include <linux/aperture.h>
 #include <linux/compat.h>
 #include <linux/module.h>
+#include <linux/module1.h>
 #include <linux/pm_runtime.h>
 #include <linux/vga_switcheroo.h>
 #include <linux/mmu_notifier.h>
@@ -123,7 +124,7 @@ SYSCTL_NODE(_hw, OID_AUTO, radeonkms,
 #define KMS_DRIVER_MINOR	50
 #define KMS_DRIVER_PATCHLEVEL	0
 
-int radeon_no_wb;
+int radeon_no_wb = 1;
 int radeon_modeset = -1;
 int radeon_dynclks = -1;
 int radeon_r4xx_atom;
@@ -137,12 +138,12 @@ int radeon_tv = 1;
 int radeon_audio = -1;
 int radeon_disp_priority;
 int radeon_hw_i2c;
-int radeon_pcie_gen2 = -1;
+int radeon_pcie_gen2 = 0;
 int radeon_msi = -1;
 int radeon_lockup_timeout = 10000;
 int radeon_fastfb;
-int radeon_dpm = -1;
-int radeon_aspm = -1;
+int radeon_dpm = 0;
+int radeon_aspm = 0;
 int radeon_runtime_pm = -1;
 int radeon_hard_reset;
 int radeon_vm_size = 8;
@@ -273,6 +274,8 @@ static int radeon_pci_probe(struct pci_dev *pdev,
 	struct radeon_device *rdev;
 	const struct drm_format_info *format;
 	int ret;
+
+printf("%s\n", __func__);
 
 	if (!ent)
 		return -ENODEV; /* Avoid NULL-ptr deref in drm_get_pci_dev */
@@ -493,7 +496,7 @@ static int radeon_pmops_runtime_idle(struct device *dev)
 }
 
 long radeon_drm_ioctl(struct file *filp,
-		      unsigned int cmd, unsigned long arg)
+		      unsigned int cmd, uintcap_t arg)
 {
 	struct drm_file *file_priv = filp->private_data;
 	struct drm_device *dev;
@@ -633,6 +636,7 @@ static struct pci_driver radeon_kms_pci_driver = {
 
 static int __init radeon_module_init(void)
 {
+printf("%s\n", __func__);
 	if (drm_firmware_drivers_only() && radeon_modeset == -1)
 		radeon_modeset = 0;
 
@@ -658,7 +662,9 @@ static void __exit radeon_module_exit(void)
 module_init(radeon_module_init);
 module_exit(radeon_module_exit);
 #elif defined(__FreeBSD__)
-LKPI_DRIVER_MODULE(radeonkms, radeon_module_init, radeon_module_exit);
+//LKPI_DRIVER_MODULE(radeonkms, radeon_module_init, radeon_module_exit);
+module_init(radeon_module_init);
+module_exit(radeon_module_exit);
 LKPI_PNP_INFO(pci, radeonkms, pciidlist);
 #endif
 

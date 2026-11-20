@@ -135,7 +135,7 @@ struct ttm_buffer_object {
 	 * reservation lock.
 	 */
 	struct sg_table *sg;
-};
+} __subobject_use_container_bounds;
 
 #define TTM_BO_MAP_IOMEM_MASK 0x80
 

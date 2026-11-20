@@ -3994,48 +3994,68 @@ int radeon_atom_init_mc_reg_table(struct radeon_device *rdev,
 	u16 data_offset, size;
 	union vram_info *vram_info;
 
+printf("%s\n", __func__);
+
 	memset(reg_table, 0, sizeof(struct atom_mc_reg_table));
 
+printf("%s 1\n", __func__);
 	if (atom_parse_data_header(rdev->mode_info.atom_context, index, &size,
 				   &frev, &crev, &data_offset)) {
 		vram_info = (union vram_info *)
 			(rdev->mode_info.atom_context->bios + data_offset);
+printf("vram_info %#.16lp\n", vram_info);
+printf("%s 1 frev %d\n", __func__, frev);
 		switch (frev) {
 		case 1:
 			DRM_ERROR("old table version %d, %d\n", frev, crev);
 			return -EINVAL;
 		case 2:
+printf("%s 1 crev %d\n", __func__, crev);
 			switch (crev) {
 			case 1:
 				if (module_index < vram_info->v2_1.ucNumOfVRAMModule) {
 					ATOM_INIT_REG_BLOCK *reg_block =
 						(ATOM_INIT_REG_BLOCK *)
 						((u8 *)vram_info + le16_to_cpu(vram_info->v2_1.usMemClkPatchTblOffset));
+printf("reg block %#.16lp\n", reg_block);
 					ATOM_MEMORY_SETTING_DATA_BLOCK *reg_data =
 						(ATOM_MEMORY_SETTING_DATA_BLOCK *)
 						((u8 *)reg_block + (2 * sizeof(u16)) +
 						 le16_to_cpu(reg_block->usRegIndexTblSize));
+printf("reg data %#.16lp\n", reg_data);
 					ATOM_INIT_REG_INDEX_FORMAT *format = &reg_block->asRegIndexBuf[0];
+printf("format %#.16lp\n", format);
+printf("%s 2\n", __func__);
 					num_entries = (u8)((le16_to_cpu(reg_block->usRegIndexTblSize)) /
 							   sizeof(ATOM_INIT_REG_INDEX_FORMAT)) - 1;
 					if (num_entries > VBIOS_MC_REGISTER_ARRAY_SIZE)
 						return -EINVAL;
+printf("%s 3\n", __func__);
 					while (i < num_entries) {
+printf("%s 4\n", __func__);
 						if (format->ucPreRegDataLength & ACCESS_PLACEHOLDER)
 							break;
+printf("%s 4 0\n", __func__);
 						reg_table->mc_reg_address[i].s1 =
 							(u16)(le16_to_cpu(format->usRegIndex));
+printf("%s 4 1\n", __func__);
 						reg_table->mc_reg_address[i].pre_reg_data =
 							(u8)(format->ucPreRegDataLength);
+printf("%s 4 2\n", __func__);
 						i++;
+printf("%s 4 3\n", __func__);
 						format = (ATOM_INIT_REG_INDEX_FORMAT *)
 							((u8 *)format + sizeof(ATOM_INIT_REG_INDEX_FORMAT));
+printf("%s 4 4\n", __func__);
+						break;
 					}
+printf("%s 5\n", __func__);
 					reg_table->last = i;
 					while ((le32_to_cpu(*(u32 *)reg_data) != END_OF_REG_DATA_BLOCK) &&
 					       (num_ranges < VBIOS_MAX_AC_TIMING_ENTRIES)) {
 						t_mem_id = (u8)((le32_to_cpu(*(u32 *)reg_data) & MEM_ID_MASK)
 								>> MEM_ID_SHIFT);
+printf("%s 6\n", __func__);
 						if (module_index == t_mem_id) {
 							reg_table->mc_reg_table_entry[num_ranges].mclk_max =
 								(u32)((le32_to_cpu(*(u32 *)reg_data) & CLOCK_RANGE_MASK)
@@ -4052,11 +4072,14 @@ int radeon_atom_init_mc_reg_table(struct radeon_device *rdev,
 							}
 							num_ranges++;
 						}
+printf("%s 7\n", __func__);
 						reg_data = (ATOM_MEMORY_SETTING_DATA_BLOCK *)
 							((u8 *)reg_data + le16_to_cpu(reg_block->usRegDataBlkSize));
+printf("reg1 data %#.16lp\n", reg_data);
 					}
 					if (le32_to_cpu(*(u32 *)reg_data) != END_OF_REG_DATA_BLOCK)
 						return -EINVAL;
+printf("%s 8\n", __func__);
 					reg_table->num_entries = num_ranges;
 				} else
 					return -EINVAL;
@@ -4070,8 +4093,10 @@ int radeon_atom_init_mc_reg_table(struct radeon_device *rdev,
 			DRM_ERROR("Unknown table version %d, %d\n", frev, crev);
 			return -EINVAL;
 		}
+printf("%s 8 ok\n", __func__);
 		return 0;
 	}
+printf("%s 8 fail\n", __func__);
 	return -EINVAL;
 }
 

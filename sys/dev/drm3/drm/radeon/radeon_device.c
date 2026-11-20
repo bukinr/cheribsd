@@ -584,7 +584,7 @@ void radeon_vram_location(struct radeon_device *rdev, struct radeon_mc *mc, u64 
 	mc->vram_end = mc->vram_start + mc->mc_vram_size - 1;
 	if (limit && limit < mc->real_vram_size)
 		mc->real_vram_size = limit;
-	dev_info(rdev->dev, "VRAM: %lluM 0x%016llX - 0x%016llX (%lluM used)\n",
+	dev_info(rdev->dev, "VRAM: %luM 0x%016lX - 0x%016lX (%luM used)\n",
 			mc->mc_vram_size >> 20, mc->vram_start,
 			mc->vram_end, mc->real_vram_size >> 20);
 }
@@ -621,7 +621,7 @@ void radeon_gtt_location(struct radeon_device *rdev, struct radeon_mc *mc)
 		mc->gtt_start = (mc->vram_end + 1 + mc->gtt_base_align) & ~mc->gtt_base_align;
 	}
 	mc->gtt_end = mc->gtt_start + mc->gtt_size - 1;
-	dev_info(rdev->dev, "GTT: %lluM 0x%016llX - 0x%016llX\n",
+	dev_info(rdev->dev, "GTT: %luM 0x%016lX - 0x%016lX\n",
 			mc->gtt_size >> 20, mc->gtt_start, mc->gtt_end);
 }
 
@@ -1391,6 +1391,8 @@ int radeon_device_init(struct radeon_device *rdev,
 	spin_lock_init(&rdev->rcu_idx_lock);
 	spin_lock_init(&rdev->didt_idx_lock);
 	spin_lock_init(&rdev->end_idx_lock);
+
+printf("%s: looking for res start\n", __func__);
 	if (rdev->family >= CHIP_BONAIRE) {
 		rdev->rmmio_base = pci_resource_start(rdev->pdev, 5);
 		rdev->rmmio_size = pci_resource_len(rdev->pdev, 5);
@@ -1398,6 +1400,7 @@ int radeon_device_init(struct radeon_device *rdev,
 		rdev->rmmio_base = pci_resource_start(rdev->pdev, 2);
 		rdev->rmmio_size = pci_resource_len(rdev->pdev, 2);
 	}
+printf("%s: base size %lx %lx\n", __func__, rdev->rmmio_base, rdev->rmmio_size);
 	rdev->rmmio = ioremap(rdev->rmmio_base, rdev->rmmio_size);
 	if (rdev->rmmio == NULL)
 		return -ENOMEM;

@@ -156,7 +156,7 @@ atomic_cmpxchg(atomic_t *v, int old, int new)
 	return (ret);
 }
 
-#if defined(__amd64__) || defined(__arm64__) || defined(__i386__)
+#if defined(__amd64__) || defined(__arm64__) || defined(__i386__) || defined(__riscv)
 #define	LINUXKPI_ATOMIC_8(...) __VA_ARGS__
 #define	LINUXKPI_ATOMIC_16(...) __VA_ARGS__
 #else
@@ -182,7 +182,7 @@ atomic_cmpxchg(atomic_t *v, int old, int new)
 	CTASSERT(							\
 	    LINUXKPI_ATOMIC_8(sizeof(__ret.val) == 1 ||)		\
 	    LINUXKPI_ATOMIC_16(sizeof(__ret.val) == 2 ||)		\
-	    LINUXKPI_ATOMIC_64(sizeof(__ret.val) == 8 ||)		\
+	    LINUXKPI_ATOMIC_64(sizeof(__ret.val) == 16 ||)		\
 	    sizeof(__ret.val) == 4);					\
 									\
 	switch (sizeof(__ret.val)) {					\
@@ -207,6 +207,7 @@ atomic_cmpxchg(atomic_t *v, int old, int new)
 		break;							\
 	LINUXKPI_ATOMIC_64(						\
 	case 8:								\
+	case 16:							\
 		while (!atomic_fcmpset_64((volatile u64 *)(ptr),	\
 		    __ret.u64, __new.u64[0]) && __ret.val == (old))	\
 			;						\

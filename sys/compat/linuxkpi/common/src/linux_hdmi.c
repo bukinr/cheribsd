@@ -1474,7 +1474,7 @@ static void hdmi_drm_infoframe_log(const char *level,
 	int i;
 
 	hdmi_infoframe_log_header(level, dev,
-				  (struct hdmi_any_infoframe *)frame);
+				  (const struct hdmi_any_infoframe *)frame);
 	hdmi_log("length: %d\n", frame->length);
 	hdmi_log("metadata type: %d\n", frame->metadata_type);
 	hdmi_log("eotf: %d\n", frame->eotf);

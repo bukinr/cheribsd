@@ -116,7 +116,7 @@ struct ttm_tt {
 	 * ttm_caching.
 	 */
 	enum ttm_caching caching;
-};
+} __subobject_use_container_bounds; //probably not needed
 
 /**
  * struct ttm_kmap_iter_tt - Specialization of a mappig iterator for a tt.

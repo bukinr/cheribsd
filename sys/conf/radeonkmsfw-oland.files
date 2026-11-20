@@ -1,0 +1,127 @@
+#
+# Radeon Oland (Southern Islands) microcode, compiled into the kernel.
+# Append to sys/conf/files.
+#
+# Expects the raw blobs in:  sys/contrib/dev/radeonkmsfw/oland_*.bin
+# Kernel config:             device radeonkmsfw_oland   (or: device radeonkmsfw)
+#
+# Image names are registered as "radeon/oland_*.bin", i.e. exactly what the
+# drm-kmod radeon driver passes to request_firmware(), so linuxkpi finds them
+# on its first lookup.
+#
+oland_ce_fw.c		optional radeonkmsfw_oland | radeonkmsfw	\
+	compile-with	"${AWK} -f $S/tools/fw_stub.awk oland_ce.fw:radeon/oland_ce.bin -mradeon_oland_ce_bin -c${.TARGET}" \
+	no-ctfconvert no-implicit-rule before-depend local		\
+	clean		"oland_ce_fw.c"
+oland_ce_fw.fwo		optional radeonkmsfw_oland | radeonkmsfw	\
+	dependency	"oland_ce.fw"					\
+	compile-with	"${NORMAL_FWO}"					\
+	no-implicit-rule						\
+	clean		"oland_ce_fw.fwo"
+oland_ce.fw		optional radeonkmsfw_oland | radeonkmsfw	\
+	dependency	"$S/contrib/dev/radeonkmsfw/oland_ce.bin"	\
+	compile-with	"${CP} ${.ALLSRC} ${.TARGET}"			\
+	no-obj no-implicit-rule						\
+	clean		"oland_ce.fw"
+oland_k_smc_fw.c	optional radeonkmsfw_oland | radeonkmsfw	\
+	compile-with	"${AWK} -f $S/tools/fw_stub.awk oland_k_smc.fw:radeon/oland_k_smc.bin -mradeon_oland_k_smc_bin -c${.TARGET}" \
+	no-ctfconvert no-implicit-rule before-depend local		\
+	clean		"oland_k_smc_fw.c"
+oland_k_smc_fw.fwo	optional radeonkmsfw_oland | radeonkmsfw	\
+	dependency	"oland_k_smc.fw"				\
+	compile-with	"${NORMAL_FWO}"					\
+	no-implicit-rule						\
+	clean		"oland_k_smc_fw.fwo"
+oland_k_smc.fw		optional radeonkmsfw_oland | radeonkmsfw	\
+	dependency	"$S/contrib/dev/radeonkmsfw/oland_k_smc.bin"	\
+	compile-with	"${CP} ${.ALLSRC} ${.TARGET}"			\
+	no-obj no-implicit-rule						\
+	clean		"oland_k_smc.fw"
+oland_mc_fw.c		optional radeonkmsfw_oland | radeonkmsfw	\
+	compile-with	"${AWK} -f $S/tools/fw_stub.awk oland_mc.fw:radeon/oland_mc.bin -mradeon_oland_mc_bin -c${.TARGET}" \
+	no-ctfconvert no-implicit-rule before-depend local		\
+	clean		"oland_mc_fw.c"
+oland_mc_fw.fwo		optional radeonkmsfw_oland | radeonkmsfw	\
+	dependency	"oland_mc.fw"					\
+	compile-with	"${NORMAL_FWO}"					\
+	no-implicit-rule						\
+	clean		"oland_mc_fw.fwo"
+oland_mc.fw		optional radeonkmsfw_oland | radeonkmsfw	\
+	dependency	"$S/contrib/dev/radeonkmsfw/oland_mc.bin"	\
+	compile-with	"${CP} ${.ALLSRC} ${.TARGET}"			\
+	no-obj no-implicit-rule						\
+	clean		"oland_mc.fw"
+oland_me_fw.c		optional radeonkmsfw_oland | radeonkmsfw	\
+	compile-with	"${AWK} -f $S/tools/fw_stub.awk oland_me.fw:radeon/oland_me.bin -mradeon_oland_me_bin -c${.TARGET}" \
+	no-ctfconvert no-implicit-rule before-depend local		\
+	clean		"oland_me_fw.c"
+oland_me_fw.fwo		optional radeonkmsfw_oland | radeonkmsfw	\
+	dependency	"oland_me.fw"					\
+	compile-with	"${NORMAL_FWO}"					\
+	no-implicit-rule						\
+	clean		"oland_me_fw.fwo"
+oland_me.fw		optional radeonkmsfw_oland | radeonkmsfw	\
+	dependency	"$S/contrib/dev/radeonkmsfw/oland_me.bin"	\
+	compile-with	"${CP} ${.ALLSRC} ${.TARGET}"			\
+	no-obj no-implicit-rule						\
+	clean		"oland_me.fw"
+oland_pfp_fw.c		optional radeonkmsfw_oland | radeonkmsfw	\
+	compile-with	"${AWK} -f $S/tools/fw_stub.awk oland_pfp.fw:radeon/oland_pfp.bin -mradeon_oland_pfp_bin -c${.TARGET}" \
+	no-ctfconvert no-implicit-rule before-depend local		\
+	clean		"oland_pfp_fw.c"
+oland_pfp_fw.fwo	optional radeonkmsfw_oland | radeonkmsfw	\
+	dependency	"oland_pfp.fw"					\
+	compile-with	"${NORMAL_FWO}"					\
+	no-implicit-rule						\
+	clean		"oland_pfp_fw.fwo"
+oland_pfp.fw		optional radeonkmsfw_oland | radeonkmsfw	\
+	dependency	"$S/contrib/dev/radeonkmsfw/oland_pfp.bin"	\
+	compile-with	"${CP} ${.ALLSRC} ${.TARGET}"			\
+	no-obj no-implicit-rule						\
+	clean		"oland_pfp.fw"
+oland_rlc_fw.c		optional radeonkmsfw_oland | radeonkmsfw	\
+	compile-with	"${AWK} -f $S/tools/fw_stub.awk oland_rlc.fw:radeon/oland_rlc.bin -mradeon_oland_rlc_bin -c${.TARGET}" \
+	no-ctfconvert no-implicit-rule before-depend local		\
+	clean		"oland_rlc_fw.c"
+oland_rlc_fw.fwo	optional radeonkmsfw_oland | radeonkmsfw	\
+	dependency	"oland_rlc.fw"					\
+	compile-with	"${NORMAL_FWO}"					\
+	no-implicit-rule						\
+	clean		"oland_rlc_fw.fwo"
+oland_rlc.fw		optional radeonkmsfw_oland | radeonkmsfw	\
+	dependency	"$S/contrib/dev/radeonkmsfw/oland_rlc.bin"	\
+	compile-with	"${CP} ${.ALLSRC} ${.TARGET}"			\
+	no-obj no-implicit-rule						\
+	clean		"oland_rlc.fw"
+oland_smc_fw.c		optional radeonkmsfw_oland | radeonkmsfw	\
+	compile-with	"${AWK} -f $S/tools/fw_stub.awk oland_smc.fw:radeon/oland_smc.bin -mradeon_oland_smc_bin -c${.TARGET}" \
+	no-ctfconvert no-implicit-rule before-depend local		\
+	clean		"oland_smc_fw.c"
+oland_smc_fw.fwo	optional radeonkmsfw_oland | radeonkmsfw	\
+	dependency	"oland_smc.fw"					\
+	compile-with	"${NORMAL_FWO}"					\
+	no-implicit-rule						\
+	clean		"oland_smc_fw.fwo"
+oland_smc.fw		optional radeonkmsfw_oland | radeonkmsfw	\
+	dependency	"$S/contrib/dev/radeonkmsfw/oland_smc.bin"	\
+	compile-with	"${CP} ${.ALLSRC} ${.TARGET}"			\
+	no-obj no-implicit-rule						\
+	clean		"oland_smc.fw"
+#
+# UVD (video decode) microcode. Shared by all Southern Islands chips
+# (Tahiti, Pitcairn, Verde, Oland, Aruba); there is no oland_uvd.bin.
+#
+TAHITI_uvd_fw.c		optional radeonkmsfw_oland | radeonkmsfw	\
+	compile-with	"${AWK} -f $S/tools/fw_stub.awk TAHITI_uvd.fw:radeon/TAHITI_uvd.bin -mradeon_TAHITI_uvd_bin -c${.TARGET}" \
+	no-ctfconvert no-implicit-rule before-depend local		\
+	clean		"TAHITI_uvd_fw.c"
+TAHITI_uvd_fw.fwo	optional radeonkmsfw_oland | radeonkmsfw	\
+	dependency	"TAHITI_uvd.fw"					\
+	compile-with	"${NORMAL_FWO}"					\
+	no-implicit-rule						\
+	clean		"TAHITI_uvd_fw.fwo"
+TAHITI_uvd.fw		optional radeonkmsfw_oland | radeonkmsfw	\
+	dependency	"$S/contrib/dev/radeonkmsfw/TAHITI_uvd.bin"	\
+	compile-with	"${CP} ${.ALLSRC} ${.TARGET}"			\
+	no-obj no-implicit-rule						\
+	clean		"TAHITI_uvd.fw"

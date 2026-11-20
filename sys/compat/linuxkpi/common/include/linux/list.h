@@ -340,7 +340,7 @@ list_splice_tail_init(struct list_head *list, struct list_head *head)
 
 struct hlist_head {
 	struct hlist_node *first;
-};
+} __subobject_use_container_bounds; //
 
 struct hlist_node {
 	struct hlist_node *next, **pprev;

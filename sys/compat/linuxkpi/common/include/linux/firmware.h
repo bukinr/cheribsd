@@ -75,6 +75,8 @@ request_firmware(const struct linuxkpi_firmware **fw,
     const char *fw_name, struct device *dev)
 {
 
+	printf("%s: %s\n", __func__, fw_name);
+
 	return (linuxkpi_request_firmware(fw, fw_name, dev));
 }
 

@@ -865,7 +865,7 @@ int drm_mode_getplane(struct drm_device *dev, void *data,
 	 */
 	if (plane->format_count &&
 	    (plane_resp->count_format_types >= plane->format_count)) {
-		format_ptr = (uint32_t __user *)(unsigned long)plane_resp->format_type_ptr;
+		format_ptr = (uint32_t __user * __capability)plane_resp->format_type_ptr;
 		if (copy_to_user(format_ptr,
 				 plane->format_types,
 				 sizeof(uint32_t) * plane->format_count)) {
@@ -935,7 +935,7 @@ static int __setplane_check(struct drm_plane *plane,
 
 	/* Check whether this plane supports the fb pixel format. */
 	if (!drm_plane_has_format(plane, fb->format->format, fb->modifier)) {
-		DRM_DEBUG_KMS("Invalid pixel format %p4cc, modifier 0x%llx\n",
+		DRM_DEBUG_KMS("Invalid pixel format %p4cc, modifier 0x%lx\n",
 			      &fb->format->format, fb->modifier);
 		return -EINVAL;
 	}

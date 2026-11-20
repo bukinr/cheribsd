@@ -116,7 +116,7 @@ pci_host_generic_setup_fdt(device_t dev)
 	STAILQ_INIT(&sc->pci_ofw_devlist);
 
 	/* Retrieve 'ranges' property from FDT */
-	if (bootverbose)
+	//if (bootverbose)
 		device_printf(dev, "parsing FDT for ECAM%d:\n", sc->base.ecam);
 	if (parse_pci_mem_ranges(dev, &sc->base))
 		return (ENXIO);
@@ -206,13 +206,17 @@ parse_pci_mem_ranges(device_t dev, struct generic_pcie_core_softc *sc)
 	base_ranges = malloc(nbase_ranges, M_DEVBUF, M_WAITOK);
 	OF_getencprop(node, "ranges", base_ranges, nbase_ranges);
 
+	uint64_t br;
 	for (i = 0, j = 0; i < sc->nranges; i++) {
-		attributes = (base_ranges[j++] >> SPACE_CODE_SHIFT) & \
-							SPACE_CODE_MASK;
+		br = base_ranges[j++];
+		attributes = (br >> SPACE_CODE_SHIFT) & SPACE_CODE_MASK;
 		if (attributes == SPACE_CODE_IO_SPACE) {
 			sc->ranges[i].flags |= FLAG_TYPE_IO;
 		} else {
-			sc->ranges[i].flags |= FLAG_TYPE_MEM;
+			if (br & (1 << 30))
+				sc->ranges[i].flags |= FLAG_TYPE_PMEM;
+			else
+				sc->ranges[i].flags |= FLAG_TYPE_MEM;
 		}
 
 		sc->ranges[i].rid = -1;
@@ -231,6 +235,7 @@ parse_pci_mem_ranges(device_t dev, struct generic_pcie_core_softc *sc)
 			sc->ranges[i].size <<= 32;
 			sc->ranges[i].size |= base_ranges[j++];
 		}
+printf("%s: range pci %lx phys %lx size %lx\n", __func__, sc->ranges[i].pci_base, sc->ranges[i].phys_base, sc->ranges[i].size);
 	}
 
 	for (; i < MAX_RANGES_TUPLES; i++) {

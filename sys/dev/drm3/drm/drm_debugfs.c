@@ -28,6 +28,7 @@
 #include <linux/seq_file.h>
 #include <linux/slab.h>
 #include <linux/uaccess.h>
+#include <linux/hdmi1.h>
 
 #include <drm/drm_atomic.h>
 #include <drm/drm_auth.h>

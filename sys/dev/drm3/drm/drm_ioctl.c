@@ -823,7 +823,7 @@ EXPORT_SYMBOL(drm_ioctl_kernel);
  * Zero on success, negative error code on failure.
  */
 long drm_ioctl(struct file *filp,
-	      unsigned int cmd, unsigned long arg)
+	      unsigned int cmd, uintcap_t arg)
 {
 	struct drm_file *file_priv = filp->private_data;
 	struct drm_device *dev;
@@ -901,7 +901,7 @@ long drm_ioctl(struct file *filp,
 		}
 	}
 
-	if (copy_from_user(kdata, (void __user *)arg, in_size) != 0) {
+	if (copy_from_user(kdata, (void __user * __capability)arg, in_size) != 0) {
 		retcode = -EFAULT;
 		goto err_i1;
 	}
@@ -910,7 +910,7 @@ long drm_ioctl(struct file *filp,
 		memset(kdata + in_size, 0, ksize - in_size);
 
 	retcode = drm_ioctl_kernel(filp, func, kdata, ioctl->flags);
-	if (copy_to_user((void __user *)arg, kdata, out_size) != 0)
+	if (copy_to_user((void __user * __capability)arg, kdata, out_size) != 0)
 		retcode = -EFAULT;
 
       err_i1:

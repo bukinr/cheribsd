@@ -493,7 +493,7 @@ int radeon_vce_cs_reloc(struct radeon_cs_parser *p, int lo, int hi,
 	p->ib.ptr[hi] = start >> 32;
 
 	if (end <= start) {
-		DRM_ERROR("invalid reloc offset %llX!\n", offset);
+		DRM_ERROR("invalid reloc offset %lX!\n", offset);
 		return -EINVAL;
 	}
 	if ((end - start) < size) {

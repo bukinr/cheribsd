@@ -283,7 +283,7 @@ struct linux_fb_info {
 	struct fb_info fbio;
 	struct task fb_mode_task;
 #endif
-} __aligned(sizeof(long));
+} __aligned(sizeof(long)) __subobject_use_container_bounds;
 
 #define __FB_DEFAULT_IOMEM_OPS_RDWR \
 	.fb_read	= fb_io_read, \

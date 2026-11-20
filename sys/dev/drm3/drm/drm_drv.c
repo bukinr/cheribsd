@@ -1127,6 +1127,7 @@ static int __init drm_core_init(void)
 {
 	int ret;
 
+printf("%s\n", __func__);
 	drm_connector_ida_init();
 	drm_memcpy_init_early();
 
@@ -1160,6 +1161,7 @@ static int __init drm_core_init(void)
 	drm_core_init_complete = true;
 
 	DRM_DEBUG("Initialized\n");
+printf("%s ok\n", __func__);
 	return 0;
 
 error:

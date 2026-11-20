@@ -883,7 +883,7 @@ static void print_size(struct drm_printer *p, const char *stat,
 		sz = div_u64(sz, SZ_1K);
 	}
 
-	drm_printf(p, "drm-%s-%s:\t%llu%s\n", stat, region, sz, units[u]);
+	drm_printf(p, "drm-%s-%s:\t%lu%s\n", stat, region, sz, units[u]);
 }
 
 int drm_memory_stats_is_zero(const struct drm_memory_stats *stats)
@@ -997,7 +997,7 @@ void drm_show_fdinfo(struct seq_file *m, struct file *f)
 	struct drm_printer p = drm_seq_file_printer(m);
 
 	drm_printf(&p, "drm-driver:\t%s\n", dev->driver->name);
-	drm_printf(&p, "drm-client-id:\t%llu\n", file->client_id);
+	drm_printf(&p, "drm-client-id:\t%lu\n", file->client_id);
 
 	if (dev_is_pci(dev->dev)) {
 		struct pci_dev *pdev = to_pci_dev(dev->dev);

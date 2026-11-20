@@ -171,13 +171,13 @@ struct mc_firmware_header_v1_0 {
 	struct common_firmware_header header;
 	uint32_t io_debug_size_bytes; /* size of debug array in dwords */
 	uint32_t io_debug_array_offset_bytes; /* payload offset from the start of the header */
-};
+} __subobject_use_container_bounds;
 
 /* version_major=1, version_minor=0 */
 struct smc_firmware_header_v1_0 {
 	struct common_firmware_header header;
 	uint32_t ucode_start_addr;
-};
+} __subobject_use_container_bounds;
 
 /* version_major=1, version_minor=0 */
 struct gfx_firmware_header_v1_0 {
@@ -185,7 +185,7 @@ struct gfx_firmware_header_v1_0 {
 	uint32_t ucode_feature_version;
 	uint32_t jt_offset; /* jt location */
 	uint32_t jt_size;  /* size of jt */
-};
+} __subobject_use_container_bounds;
 
 /* version_major=1, version_minor=0 */
 struct rlc_firmware_header_v1_0 {
@@ -195,7 +195,7 @@ struct rlc_firmware_header_v1_0 {
 	uint32_t clear_state_descriptor_offset;
 	uint32_t avail_scratch_ram_locations;
 	uint32_t master_pkt_description_offset;
-};
+} __subobject_use_container_bounds;
 
 /* version_major=1, version_minor=0 */
 struct sdma_firmware_header_v1_0 {
@@ -204,7 +204,7 @@ struct sdma_firmware_header_v1_0 {
 	uint32_t ucode_change_version;
 	uint32_t jt_offset; /* jt location */
 	uint32_t jt_size; /* size of jt */
-};
+} __subobject_use_container_bounds;
 
 /* header is fixed size */
 union radeon_firmware_header {
@@ -215,7 +215,7 @@ union radeon_firmware_header {
 	struct rlc_firmware_header_v1_0 rlc;
 	struct sdma_firmware_header_v1_0 sdma;
 	uint8_t raw[0x100];
-};
+} __subobject_use_container_bounds;
 
 void radeon_ucode_print_mc_hdr(const struct common_firmware_header *hdr);
 void radeon_ucode_print_smc_hdr(const struct common_firmware_header *hdr);

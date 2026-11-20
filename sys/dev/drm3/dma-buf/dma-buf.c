@@ -153,7 +153,8 @@ dma_buf_fill_kinfo(struct file *fp, struct kinfo_file *kif,
 }
 
 static int
-dma_buf_mmap_fileops(struct file *fp, vm_map_t map, vm_offset_t *addr,
+dma_buf_mmap_fileops(struct file *fp, vm_map_t map, vm_pointer_t *addr,
+	     vm_offset_t max_addr,
 	     vm_size_t size, vm_prot_t prot, vm_prot_t cap_maxprot,
 	     int flags, vm_ooffset_t foff, struct thread *td)
 {

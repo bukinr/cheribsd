@@ -384,19 +384,19 @@ int drm_mode_gamma_set_ioctl(struct drm_device *dev,
 
 	size = crtc_lut->gamma_size * (sizeof(uint16_t));
 	r_base = crtc->gamma_store;
-	if (copy_from_user(r_base, (void __user *)(unsigned long)crtc_lut->red, size)) {
+	if (copy_from_user(r_base, (void __user * __capability)crtc_lut->red, size)) {
 		ret = -EFAULT;
 		goto out;
 	}
 
 	g_base = r_base + size;
-	if (copy_from_user(g_base, (void __user *)(unsigned long)crtc_lut->green, size)) {
+	if (copy_from_user(g_base, (void __user * __capability)crtc_lut->green, size)) {
 		ret = -EFAULT;
 		goto out;
 	}
 
 	b_base = g_base + size;
-	if (copy_from_user(b_base, (void __user *)(unsigned long)crtc_lut->blue, size)) {
+	if (copy_from_user(b_base, (void __user * __capability)crtc_lut->blue, size)) {
 		ret = -EFAULT;
 		goto out;
 	}
@@ -448,19 +448,19 @@ int drm_mode_gamma_get_ioctl(struct drm_device *dev,
 	drm_modeset_lock(&crtc->mutex, NULL);
 	size = crtc_lut->gamma_size * (sizeof(uint16_t));
 	r_base = crtc->gamma_store;
-	if (copy_to_user((void __user *)(unsigned long)crtc_lut->red, r_base, size)) {
+	if (copy_to_user((void __user * __capability)crtc_lut->red, r_base, size)) {
 		ret = -EFAULT;
 		goto out;
 	}
 
 	g_base = r_base + size;
-	if (copy_to_user((void __user *)(unsigned long)crtc_lut->green, g_base, size)) {
+	if (copy_to_user((void __user * __capability)crtc_lut->green, g_base, size)) {
 		ret = -EFAULT;
 		goto out;
 	}
 
 	b_base = g_base + size;
-	if (copy_to_user((void __user *)(unsigned long)crtc_lut->blue, b_base, size)) {
+	if (copy_to_user((void __user * __capability)crtc_lut->blue, b_base, size)) {
 		ret = -EFAULT;
 		goto out;
 	}
@@ -532,7 +532,7 @@ int drm_plane_create_color_properties(struct drm_plane *plane,
 {
 	struct drm_device *dev = plane->dev;
 	struct drm_property *prop;
-	struct drm_prop_enum_list enum_list[MAX_T(int, DRM_COLOR_ENCODING_MAX,
+	struct drm_prop_enum_list enum_list[max_t(int, DRM_COLOR_ENCODING_MAX,
 						       DRM_COLOR_RANGE_MAX)];
 	int i, len;
 

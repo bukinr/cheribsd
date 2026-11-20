@@ -264,7 +264,7 @@ struct ttm_resource {
 	 * @lru: Least recently used list, see &ttm_resource_manager.lru
 	 */
 	struct ttm_lru_item lru;
-};
+} __subobject_use_container_bounds;
 
 /**
  * ttm_lru_item_to_res() - Downcast a struct ttm_lru_item to a struct ttm_resource

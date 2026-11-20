@@ -4,7 +4,7 @@
  * Copyright (c) 2010 Panasas, Inc.
  * Copyright (c) 2013-2021 Mellanox Technologies, Ltd.
  * All rights reserved.
- * Copyright (c) 2024-2025 The FreeBSD Foundation
+ * Copyright (c) 2024-2026 The FreeBSD Foundation
  *
  * Portions of this software were developed by Björn Zeeb
  * under sponsorship from the FreeBSD Foundation.
@@ -40,15 +40,35 @@
 #include <linux/compat.h>
 #include <linux/types.h>
 #include <linux/gfp.h>
+#include <linux/err.h>
 #include <linux/llist.h>
 #include <linux/overflow.h>
+#include <linux/cleanup.h>
 
 MALLOC_DECLARE(M_KMALLOC);
 
 #define	kvzalloc(size, flags)		kvmalloc(size, (flags) | __GFP_ZERO)
 #define	kvcalloc(n, size, flags)	kvmalloc_array(n, size, (flags) | __GFP_ZERO)
 #define	kzalloc(size, flags)		kmalloc(size, (flags) | __GFP_ZERO)
+#define	kvmalloc_objs(obj, count, f)	kzalloc(sizeof(typeof(obj)) * count, \
+    (f) | __GFP_ZERO)
 #define	kzalloc_node(size, flags, node)	kmalloc_node(size, (flags) | __GFP_ZERO, node)
+#define	kzalloc_obj(_p, ...)						\
+    kzalloc(sizeof(typeof(_p)), default_gfp(__VA_ARGS__))
+#define	kzalloc_objs(_p, _n, ...)					\
+    kzalloc(size_mul((_n), sizeof(typeof(_p))), default_gfp(__VA_ARGS__))
+#define	kzalloc_flex(_p, _field, _n, ...)				\
+({									\
+	const size_t __n = (_n);					\
+	const size_t __psize = struct_size_t(typeof(_p), _field, __n);	\
+	typeof(_p) *__p_obj;						\
+									\
+	__p_obj = kzalloc(__psize, default_gfp(__VA_ARGS__));		\
+	if (__p_obj != NULL)						\
+		__set_flex_counter(__p_obj->_field, __n);		\
+									\
+	__p_obj;							\
+})
 #define	kfree_const(ptr)		kfree(ptr)
 #define kfree_async(ptr)		kfree(ptr)		/* drm-kmod 5.4 compat */
 #define	vzalloc(size)			__vmalloc(size, GFP_KERNEL | __GFP_NOWARN | __GFP_ZERO, 0)
@@ -98,11 +118,36 @@ void *lkpi_kmem_cache_zalloc(struct linux_kmem_cache *, gfp_t);
 void lkpi_kmem_cache_free(struct linux_kmem_cache *, void *);
 void linux_kmem_cache_destroy(struct linux_kmem_cache *);
 
+/* For panthor. */
+static int
+kmem_cache_alloc_bulk(struct linux_kmem_cache *c, gfp_t f, size_t size,
+    void **p)
+{
+	int i;
+
+	for (i = 0; i < size; i++) {
+		p[i] = lkpi_kmem_cache_alloc(c, f);
+		if (p[i] == NULL)
+			panic("%s: impl me", __func__);
+	}
+
+	return (i);
+}
+
+static void
+kmem_cache_free_bulk(struct linux_kmem_cache *c, size_t size, void **p)
+{
+	int i;
+
+	for (i = 0; i < size; i++)
+		lkpi_kmem_cache_free(c, p[i]);
+}
+
 void *lkpi_kmalloc(size_t, gfp_t);
 void *lkpi_kvmalloc(size_t, gfp_t);
 void *lkpi___kmalloc(size_t, gfp_t);
 void *lkpi___kmalloc_node(size_t, gfp_t, int);
-void *lkpi_krealloc(void *, size_t, gfp_t);
+void *lkpi_krealloc(const void *, size_t, gfp_t);
 void lkpi_kfree(const void *);
 
 static inline gfp_t
@@ -123,6 +168,13 @@ linux_check_m_flags(gfp_t flags)
 /*
  * Base functions with a native implementation.
  */
+
+static inline size_t
+ksize(const void *ptr)
+{
+	return (malloc_usable_size(ptr));
+}
+
 static inline void *
 kmalloc(size_t size, gfp_t flags)
 {
@@ -141,8 +193,14 @@ kmalloc_node(size_t size, gfp_t flags, int node)
 	return (lkpi___kmalloc_node(size, flags, node));
 }
 
+#define	kmalloc_obj(_p, ...)						\
+    kmalloc(sizeof(typeof(_p)), default_gfp(__VA_ARGS__))
+
+#define	kmalloc_objs(_p, _n, ...)					\
+    kmalloc(size_mul((_n) * sizeof(typeof(_p))), default_gfp(__VA_ARGS__))
+
 static inline void *
-krealloc(void *ptr, size_t size, gfp_t flags)
+krealloc(const void *ptr, size_t size, gfp_t flags)
 {
 	return (lkpi_krealloc(ptr, size, flags));
 }
@@ -152,6 +210,8 @@ kfree(const void *ptr)
 {
 	lkpi_kfree(ptr);
 }
+
+DEFINE_FREE(kfree, void *, if (!IS_ERR_OR_NULL(_T)) kfree(_T))
 
 /*
  * Other k*alloc() funtions using the above as underlying allocator.
@@ -238,22 +298,28 @@ kvmalloc_array(size_t n, size_t size, gfp_t flags)
 	return (kvmalloc(size * n, flags));
 }
 
+void * lkpi_kvrealloc(const void *ptr, size_t oldsize, size_t newsize, gfp_t flags);
+
+#if defined(LINUXKPI_VERSION) && LINUXKPI_VERSION < 61200
 static inline void *
 kvrealloc(const void *ptr, size_t oldsize, size_t newsize, gfp_t flags)
 {
-	void *newptr;
-
-	if (newsize <= oldsize)
-		return (__DECONST(void *, ptr));
-
-	newptr = kvmalloc(newsize, flags);
-	if (newptr != NULL) {
-		memcpy(newptr, ptr, oldsize);
-		kvfree(ptr);
-	}
-
-	return (newptr);
+	return (lkpi_kvrealloc(ptr, oldsize, newsize, flags));
 }
+#else
+static inline void *
+kvrealloc(const void *ptr, size_t newsize, gfp_t flags)
+{
+	size_t oldsize;
+
+	if (!ZERO_OR_NULL_PTR(ptr))
+		oldsize = ksize(ptr);
+	else
+		oldsize = 0;
+
+	return (lkpi_kvrealloc(ptr, oldsize, newsize, flags));
+}
+#endif
 
 /*
  * Misc.
@@ -266,12 +332,6 @@ kfree_sensitive(const void *ptr)
 		return;
 
 	zfree(__DECONST(void *, ptr), M_KMALLOC);
-}
-
-static inline size_t
-ksize(const void *ptr)
-{
-	return (malloc_usable_size(ptr));
 }
 
 static inline size_t

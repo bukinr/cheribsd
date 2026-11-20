@@ -265,7 +265,7 @@ bool radeon_ring_test_lockup(struct radeon_device *rdev, struct radeon_ring *rin
 
 	elapsed = jiffies_to_msecs(jiffies_64 - last);
 	if (radeon_lockup_timeout && elapsed >= radeon_lockup_timeout) {
-		dev_err(rdev->dev, "ring %d stalled for more than %llumsec\n",
+		dev_err(rdev->dev, "ring %d stalled for more than %lumsec\n",
 			ring->idx, elapsed);
 		return true;
 	}

@@ -1415,7 +1415,7 @@ static void r600_vram_gtt_location(struct radeon_device *rdev, struct radeon_mc 
 			mc->vram_start = mc->gtt_end + 1;
 		}
 		mc->vram_end = mc->vram_start + mc->mc_vram_size - 1;
-		dev_info(rdev->dev, "VRAM: %lluM 0x%08llX - 0x%08llX (%lluM used)\n",
+		dev_info(rdev->dev, "VRAM: %luM 0x%08lX - 0x%08lX (%luM used)\n",
 				mc->mc_vram_size >> 20, mc->vram_start,
 				mc->vram_end, mc->real_vram_size >> 20);
 	} else {

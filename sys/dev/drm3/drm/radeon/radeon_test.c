@@ -218,7 +218,7 @@ static void radeon_do_test_moves(struct radeon_device *rdev, int flag)
 
 		radeon_bo_kunmap(gtt_obj[i]);
 
-		DRM_INFO("Tested GTT->VRAM and VRAM->GTT copy for GTT offset 0x%llx\n",
+		DRM_INFO("Tested GTT->VRAM and VRAM->GTT copy for GTT offset 0x%lx\n",
 			 gtt_addr - rdev->mc.gtt_start);
 		continue;
 

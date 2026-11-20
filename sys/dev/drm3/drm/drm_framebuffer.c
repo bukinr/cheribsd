@@ -206,14 +206,14 @@ static int framebuffer_check(struct drm_device *dev,
 		}
 
 		if (r->modifier[i] && !(r->flags & DRM_MODE_FB_MODIFIERS)) {
-			drm_dbg_kms(dev, "bad fb modifier %llu for plane %d\n",
+			drm_dbg_kms(dev, "bad fb modifier %lu for plane %d\n",
 				    r->modifier[i], i);
 			return -EINVAL;
 		}
 
 		if (r->flags & DRM_MODE_FB_MODIFIERS &&
 		    r->modifier[i] != r->modifier[0]) {
-			drm_dbg_kms(dev, "bad fb modifier %llu for plane %d\n",
+			drm_dbg_kms(dev, "bad fb modifier %lu for plane %d\n",
 				    r->modifier[i], i);
 			return -EINVAL;
 		}
@@ -726,7 +726,7 @@ int drm_mode_dirtyfb_ioctl(struct drm_device *dev,
 		return -ENOENT;
 
 	num_clips = r->num_clips;
-	clips_ptr = (struct drm_clip_rect __user *)(unsigned long)r->clips_ptr;
+	clips_ptr = (struct drm_clip_rect __user * __capability)r->clips_ptr;
 
 	if (!num_clips != !clips_ptr) {
 		ret = -EINVAL;
@@ -1163,7 +1163,7 @@ void drm_framebuffer_print_info(struct drm_printer *p, unsigned int indent,
 	drm_printf_indent(p, indent, "refcount=%u\n",
 			  drm_framebuffer_read_refcount(fb));
 	drm_printf_indent(p, indent, "format=%p4cc\n", &fb->format->format);
-	drm_printf_indent(p, indent, "modifier=0x%llx\n", fb->modifier);
+	drm_printf_indent(p, indent, "modifier=0x%lx\n", fb->modifier);
 	drm_printf_indent(p, indent, "size=%ux%u\n", fb->width, fb->height);
 	drm_printf_indent(p, indent, "layers:\n");
 

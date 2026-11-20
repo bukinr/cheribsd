@@ -27,7 +27,9 @@
  *      Dave Airlie <airlied@linux.ie>
  *      Jesse Barnes <jesse.barnes@intel.com>
  */
+#ifndef	pr_fmt
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
+#endif
 
 #include <linux/console.h>
 #include <linux/pci.h>
@@ -1848,6 +1850,8 @@ __drm_fb_helper_initial_config_and_unlock(struct drm_fb_helper *fb_helper)
 	unsigned int width, height;
 	int ret;
 
+printf("%s\n", __func__);
+
 	width = dev->mode_config.max_width;
 	height = dev->mode_config.max_height;
 
@@ -1939,10 +1943,14 @@ int drm_fb_helper_initial_config(struct drm_fb_helper *fb_helper)
 {
 	int ret;
 
+printf("%s 0\n", __func__);
 	if (!drm_fbdev_emulation)
 		return 0;
 
+printf("%s\n", __func__);
+
 	mutex_lock(&fb_helper->lock);
+printf("%s 1\n", __func__);
 	ret = __drm_fb_helper_initial_config_and_unlock(fb_helper);
 
 	return ret;

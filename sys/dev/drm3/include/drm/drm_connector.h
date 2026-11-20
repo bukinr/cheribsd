@@ -1875,7 +1875,7 @@ struct drm_connector {
 	struct list_head global_connector_list_entry;
 
 	/** @base: base KMS object */
-	struct drm_mode_object base;
+	struct drm_mode_object base __subobject_use_container_bounds;
 
 	/** @name: human readable name, can be overwritten by the driver */
 	char *name;

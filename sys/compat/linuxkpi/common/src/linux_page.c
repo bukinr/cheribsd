@@ -100,7 +100,10 @@ linux_alloc_pages(gfp_t flags, unsigned int order)
 {
 	struct page *page;
 
+printf("%s\n", __func__);
+
 	if (PMAP_HAS_DMAP) {
+printf("%s has dmap\n", __func__);
 		unsigned long npages = 1UL << order;
 		int req = VM_ALLOC_WIRED;
 

@@ -494,12 +494,18 @@ linux_pci_reserve_bar(struct pci_dev *pdev, struct resource_list *rl,
 	KASSERT(type == SYS_RES_IOPORT || type == SYS_RES_MEMORY,
 	    ("trying to reserve non-BAR type %d", type));
 
+printf("%s: isdrm? %d\n", __func__, pdev->pdrv->isdrm);
+printf("%s: parent %p\n", __func__, device_get_parent(pdev->dev.bsddev));
+
+printf("%s: type %d rid %d\n", __func__, type, rid);
+
 	dev = pdev->pdrv != NULL && pdev->pdrv->isdrm ?
 	    device_get_parent(pdev->dev.bsddev) : pdev->dev.bsddev;
 	res = pci_reserve_map(device_get_parent(dev), dev, type, &rid, 0, ~0,
 	    1, 1, 0);
 	if (res == NULL)
 		return (NULL);
+printf("%s: reserved ok\n", __func__);
 	return (resource_list_find(rl, type, rid));
 }
 
@@ -1042,8 +1048,10 @@ lkpi_pci_get_bar(struct pci_dev *pdev, int bar, bool reserve)
 	int type;
 
 	type = pci_resource_type(pdev, bar);
-	if (type < 0)
+	if (type < 0) {
+		printf("%s: type %x\n", __func__, type);
 		return (NULL);
+	}
 	bar = PCIR_BAR(bar);
 	return (linux_pci_get_rle(pdev, type, bar, reserve));
 }
@@ -1075,8 +1083,10 @@ pci_resource_start(struct pci_dev *pdev, int bar)
 	device_t dev;
 	int error;
 
-	if ((rle = lkpi_pci_get_bar(pdev, bar, true)) == NULL)
+	if ((rle = lkpi_pci_get_bar(pdev, bar, true)) == NULL) {
+		printf("%s: bar %x error\n", __func__, bar);
 		return (0);
+	}
 	dev = pdev->pdrv != NULL && pdev->pdrv->isdrm ?
 	    device_get_parent(pdev->dev.bsddev) : pdev->dev.bsddev;
 	error = bus_translate_resource(dev, rle->type, rle->start, &newstart);
@@ -1622,7 +1632,7 @@ linux_dma_alloc_coherent(struct device *dev, size_t size,
 	/* Always zero the allocation. */
 	flag |= M_ZERO;
 	mem = kmem_alloc_contig(size, flag & GFP_NATIVE_MASK, 0, high,
-	    align, 0, VM_MEMATTR_DEFAULT);
+	    align, 0, VM_MEMATTR_UNCACHEABLE);
 	if (mem != NULL) {
 		*dma_handle = linux_dma_map_phys_common(dev, vtophys(mem), size,
 		    priv->dmat_coherent);

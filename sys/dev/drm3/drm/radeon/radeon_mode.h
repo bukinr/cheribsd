@@ -207,7 +207,7 @@ struct radeon_i2c_chan {
 	struct drm_dp_aux aux;
 	bool has_aux;
 	struct mutex mutex;
-};
+} __subobject_use_container_bounds;
 
 /* mostly for macs, but really any system without connector tables */
 enum radeon_connector_table {
@@ -364,7 +364,7 @@ struct radeon_crtc {
 	u32 lb_vblank_lead_lines;
 	struct drm_display_mode hw_mode;
 	enum radeon_output_csc output_csc;
-};
+} __subobject_use_container_bounds;
 
 struct radeon_encoder_primary_dac {
 	/* legacy primary dac */
@@ -461,7 +461,7 @@ struct radeon_encoder {
 	enum radeon_output_csc output_csc;
 	bool can_mst;
 	uint32_t offset;
-};
+} __subobject_use_container_bounds;
 
 struct radeon_connector_atom_dig {
 	uint32_t igp_lane_info;
@@ -536,7 +536,7 @@ struct radeon_connector {
 	enum radeon_connector_audio audio;
 	enum radeon_connector_dither dither;
 	int pixelclock_for_modeset;
-};
+} __subobject_use_container_bounds;
 
 #define ENCODER_MODE_IS_DP(em) (((em) == ATOM_ENCODER_MODE_DP) || \
 				((em) == ATOM_ENCODER_MODE_DP_MST))

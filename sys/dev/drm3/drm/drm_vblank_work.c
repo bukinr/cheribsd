@@ -142,7 +142,7 @@ int drm_vblank_work_schedule(struct drm_vblank_work *work,
 	passed = drm_vblank_passed(cur_vbl, count);
 	if (passed)
 		drm_dbg_core(dev,
-			     "crtc %d vblank %llu already passed (current %llu)\n",
+			     "crtc %d vblank %lu already passed (current %lu)\n",
 			     vblank->pipe, count, cur_vbl);
 
 	if (!nextonmiss && passed) {

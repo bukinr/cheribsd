@@ -296,7 +296,7 @@ static void radeon_fence_check_lockup(struct work_struct *work)
 	else if (radeon_ring_is_lockup(rdev, ring, &rdev->ring[ring])) {
 
 		/* good news we believe it's a lockup */
-		dev_warn(rdev->dev, "GPU lockup (current fence id 0x%016llx last fence id 0x%016llx on ring %d)\n",
+		dev_warn(rdev->dev, "GPU lockup (current fence id 0x%016lx last fence id 0x%016lx on ring %d)\n",
 			 (uint64_t)atomic64_read(&fence_drv->last_seq),
 			 fence_drv->sync_seq[ring], ring);
 
@@ -840,7 +840,7 @@ int radeon_fence_driver_start_ring(struct radeon_device *rdev, int ring)
 	}
 	radeon_fence_write(rdev, atomic64_read(&rdev->fence_drv[ring].last_seq), ring);
 	rdev->fence_drv[ring].initialized = true;
-	dev_info(rdev->dev, "fence driver on ring %d use gpu addr 0x%016llx\n",
+	dev_info(rdev->dev, "fence driver on ring %d use gpu addr 0x%016lx\n",
 		 ring, rdev->fence_drv[ring].gpu_addr);
 	return 0;
 }

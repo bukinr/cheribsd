@@ -453,7 +453,7 @@ struct radeon_surface_reg {
 struct radeon_mman {
 	struct ttm_device		bdev;
 	bool				initialized;
-};
+} __subobject_use_container_bounds;
 
 struct radeon_bo_list {
 	struct radeon_bo		*robj;
@@ -509,7 +509,7 @@ struct radeon_bo {
 #ifdef CONFIG_MMU_NOTIFIER
 	struct mmu_interval_notifier	notifier;
 #endif
-};
+} __subobject_use_container_bounds;
 #define gem_to_radeon_bo(gobj) container_of((gobj), struct radeon_bo, tbo.base)
 
 struct radeon_sa_manager {
@@ -518,7 +518,7 @@ struct radeon_sa_manager {
 	uint64_t			gpu_addr;
 	void				*cpu_ptr;
 	u32 domain;
-};
+} __subobject_use_container_bounds;
 
 /*
  * GEM objects.
@@ -1022,7 +1022,7 @@ struct radeon_cs_parser {
 	/* chunks */
 	unsigned		nchunks;
 	struct radeon_cs_chunk	*chunks;
-	uint64_t		*chunks_array;
+	uintptr_t		*chunks_array;
 	/* IB */
 	unsigned		idx;
 	/* relocations */
@@ -2443,7 +2443,7 @@ struct radeon_device {
 	/* tracking pinned memory */
 	u64 vram_pin_size;
 	u64 gart_pin_size;
-};
+} __subobject_use_container_bounds;
 
 bool radeon_is_px(struct drm_device *dev);
 int radeon_device_init(struct radeon_device *rdev,

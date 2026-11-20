@@ -52,7 +52,7 @@ struct dma_fence {
 	unsigned long flags;
 	struct kref refcount;
 	int error;
-};
+} __subobject_use_container_bounds;
 
 struct dma_fence_cb;
 

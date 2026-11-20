@@ -200,6 +200,13 @@ int radeon_bo_create(struct radeon_device *rdev,
 	if (!drm_arch_can_wc_memory())
 		bo->flags &= ~RADEON_GEM_GTT_WC;
 #endif
+	if (drm_arch_can_wc_memory())
+		printf("can wc\n");
+	else
+		printf("cannot wc\n");
+
+	//not sure about wc
+	bo->flags |= (RADEON_GEM_GTT_WC | RADEON_GEM_GTT_UC);
 
 	radeon_ttm_placement_from_domain(bo, domain);
 	/* Kernel allocation are uninterruptible */
@@ -278,10 +285,13 @@ int radeon_bo_pin_restricted(struct radeon_bo *bo, u32 domain, u64 max_offset,
 	struct ttm_operation_ctx ctx = { false, false };
 	int r, i;
 
+printf("%s\n", __func__);
 	if (radeon_ttm_tt_has_userptr(bo->rdev, bo->tbo.ttm))
 		return -EPERM;
 
+printf("%s\n", __func__);
 	if (bo->tbo.pin_count) {
+printf("%s 1\n", __func__);
 		ttm_bo_pin(&bo->tbo);
 		if (gpu_addr)
 			*gpu_addr = radeon_bo_gpu_offset(bo);
@@ -299,13 +309,17 @@ int radeon_bo_pin_restricted(struct radeon_bo *bo, u32 domain, u64 max_offset,
 
 		return 0;
 	}
+printf("%s 2\n", __func__);
 	if (bo->prime_shared_count && domain == RADEON_GEM_DOMAIN_VRAM) {
 		/* A BO shared as a dma-buf cannot be sensibly migrated to VRAM */
 		return -EINVAL;
 	}
 
+printf("%s 2\n", __func__);
 	radeon_ttm_placement_from_domain(bo, domain);
+printf("%s 2\n", __func__);
 	for (i = 0; i < bo->placement.num_placement; i++) {
+printf("%s 3\n", __func__);
 		/* force to pin into visible video ram */
 		if ((bo->placements[i].mem_type == TTM_PL_VRAM) &&
 		    !(bo->flags & RADEON_GEM_NO_CPU_ACCESS) &&
@@ -316,8 +330,11 @@ int radeon_bo_pin_restricted(struct radeon_bo *bo, u32 domain, u64 max_offset,
 			bo->placements[i].lpfn = max_offset >> PAGE_SHIFT;
 	}
 
+printf("%s 4\n", __func__);
 	r = ttm_bo_validate(&bo->tbo, &bo->placement, &ctx);
+printf("%s 5\n", __func__);
 	if (likely(r == 0)) {
+printf("%s 6\n", __func__);
 		ttm_bo_pin(&bo->tbo);
 		if (gpu_addr != NULL)
 			*gpu_addr = radeon_bo_gpu_offset(bo);
@@ -328,6 +345,7 @@ int radeon_bo_pin_restricted(struct radeon_bo *bo, u32 domain, u64 max_offset,
 	} else {
 		dev_err(bo->rdev->dev, "%p pin failed\n", bo);
 	}
+printf("%s 7\n", __func__);
 	return r;
 }
 
@@ -397,7 +415,7 @@ int radeon_bo_init(struct radeon_device *rdev)
 		rdev->mc.vram_mtrr = arch_phys_wc_add(rdev->mc.aper_base,
 						      rdev->mc.aper_size);
 	}
-	DRM_INFO("Detected VRAM RAM=%lluM, BAR=%lluM\n",
+	DRM_INFO("Detected VRAM RAM=%luM, BAR=%lluM\n",
 		rdev->mc.mc_vram_size >> 20,
 		(unsigned long long)rdev->mc.aper_size >> 20);
 	DRM_INFO("RAM width %dbits %cDR\n",

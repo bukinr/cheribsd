@@ -98,6 +98,7 @@
 #include <linux/interval_tree_generic.h>
 #include <linux/printk.h>
 #include <linux/seq_file.h>
+#include <linux/uuid.h>
 
 #if defined(__i386__) || defined(__amd64__)
 #include <asm/smp.h>
@@ -112,6 +113,8 @@
 #undef __must_check
 #include <xen/xen-os.h>
 #endif
+
+const guid_t guid_null;
 
 SYSCTL_NODE(_compat, OID_AUTO, linuxkpi, CTLFLAG_RW | CTLFLAG_MPSAFE, 0,
     "LinuxKPI parameters");

@@ -183,7 +183,7 @@ static void ttm_pool_free_page(struct ttm_pool *pool, enum ttm_caching caching,
 static int ttm_pool_apply_caching(struct page **first, struct page **last,
 				  enum ttm_caching caching)
 {
-#ifdef CONFIG_X86
+//#ifdef CONFIG_X86
 	unsigned int num_pages = last - first;
 
 	if (!num_pages)
@@ -197,7 +197,7 @@ static int ttm_pool_apply_caching(struct page **first, struct page **last,
 	case ttm_uncached:
 		return set_pages_array_uc(first, num_pages);
 	}
-#endif
+//#endif
 	return 0;
 }
 

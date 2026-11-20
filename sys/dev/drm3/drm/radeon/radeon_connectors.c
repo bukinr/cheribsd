@@ -1852,9 +1852,11 @@ radeon_add_atom_connector(struct drm_device *dev,
 	bool is_dp_bridge = false;
 	bool has_aux = false;
 
+printf("%s\n", __func__);
 	if (connector_type == DRM_MODE_CONNECTOR_Unknown)
 		return;
 
+printf("%s\n", __func__);
 	/* if the user selected tv=0 don't try and add the connector */
 	if (((connector_type == DRM_MODE_CONNECTOR_SVIDEO) ||
 	     (connector_type == DRM_MODE_CONNECTOR_Composite) ||
@@ -1862,18 +1864,24 @@ radeon_add_atom_connector(struct drm_device *dev,
 	    (radeon_tv == 0))
 		return;
 
+printf("%s\n", __func__);
 	/* see if we already added it */
 	list_for_each_entry(connector, &dev->mode_config.connector_list, head) {
+printf("%s 1\n", __func__);
 		radeon_connector = to_radeon_connector(connector);
+printf("%s 2\n", __func__);
 		if (radeon_connector->connector_id == connector_id) {
 			radeon_connector->devices |= supported_device;
 			return;
 		}
+printf("%s 3\n", __func__);
 		if (radeon_connector->ddc_bus && i2c_bus->valid) {
+printf("%s 4\n", __func__);
 			if (radeon_connector->ddc_bus->rec.i2c_id == i2c_bus->i2c_id) {
 				radeon_connector->shared_ddc = true;
 				shared_ddc = true;
 			}
+printf("%s 5\n", __func__);
 			if (radeon_connector->router_bus && router->ddc_valid &&
 			    (radeon_connector->router.router_id == router->router_id)) {
 				radeon_connector->shared_ddc = false;
@@ -1882,6 +1890,7 @@ radeon_add_atom_connector(struct drm_device *dev,
 		}
 	}
 
+printf("%s 6\n", __func__);
 	/* check if it's a dp bridge */
 	list_for_each_entry(encoder, &dev->mode_config.encoder_list, head) {
 		radeon_encoder = to_radeon_encoder(encoder);
@@ -1897,18 +1906,22 @@ radeon_add_atom_connector(struct drm_device *dev,
 		}
 	}
 
+printf("%s 7\n", __func__);
 	radeon_connector = kzalloc(sizeof(struct radeon_connector), GFP_KERNEL);
 	if (!radeon_connector)
 		return;
 
+printf("%s 8\n", __func__);
 	connector = &radeon_connector->base;
 
+printf("%s 8\n", __func__);
 	radeon_connector->connector_id = connector_id;
 	radeon_connector->devices = supported_device;
 	radeon_connector->shared_ddc = shared_ddc;
 	radeon_connector->connector_object_id = connector_object_id;
 	radeon_connector->hpd = *hpd;
 
+printf("%s 8\n", __func__);
 	radeon_connector->router = *router;
 	if (router->ddc_valid || router->cd_valid) {
 		radeon_connector->router_bus = radeon_i2c_lookup(rdev, &router->i2c_info);
@@ -1916,13 +1929,17 @@ radeon_add_atom_connector(struct drm_device *dev,
 			DRM_ERROR("Failed to assign router i2c bus! Check dmesg for i2c errors.\n");
 	}
 
+printf("%s 8\n", __func__);
 	if (is_dp_bridge) {
+printf("%s 8 dp\n", __func__);
 		radeon_dig_connector = kzalloc(sizeof(struct radeon_connector_atom_dig), GFP_KERNEL);
 		if (!radeon_dig_connector)
 			goto failed;
+printf("%s 8 dp 1\n", __func__);
 		radeon_dig_connector->igp_lane_info = igp_lane_info;
 		radeon_connector->con_priv = radeon_dig_connector;
 		if (i2c_bus->valid) {
+printf("%s 8 dp 2\n", __func__);
 			radeon_connector->ddc_bus = radeon_i2c_lookup(rdev, i2c_bus);
 			if (radeon_connector->ddc_bus) {
 				has_aux = true;
@@ -1935,6 +1952,7 @@ radeon_add_atom_connector(struct drm_device *dev,
 		case DRM_MODE_CONNECTOR_VGA:
 		case DRM_MODE_CONNECTOR_DVIA:
 		default:
+printf("%s 8 dp 3\n", __func__);
 			drm_connector_init_with_ddc(dev, &radeon_connector->base,
 						    &radeon_dp_connector_funcs,
 						    connector_type,
@@ -1960,6 +1978,7 @@ radeon_add_atom_connector(struct drm_device *dev,
 		case DRM_MODE_CONNECTOR_HDMIA:
 		case DRM_MODE_CONNECTOR_HDMIB:
 		case DRM_MODE_CONNECTOR_DisplayPort:
+printf("%s 8 dp dp\n", __func__);
 			drm_connector_init_with_ddc(dev, &radeon_connector->base,
 						    &radeon_dp_connector_funcs,
 						    connector_type,
@@ -2025,6 +2044,7 @@ radeon_add_atom_connector(struct drm_device *dev,
 			break;
 		}
 	} else {
+printf("%s 10\n", __func__);
 		switch (connector_type) {
 		case DRM_MODE_CONNECTOR_VGA:
 			if (i2c_bus->valid) {
@@ -2205,6 +2225,7 @@ radeon_add_atom_connector(struct drm_device *dev,
 				connector->doublescan_allowed = false;
 			break;
 		case DRM_MODE_CONNECTOR_DisplayPort:
+printf("%s dP\n", __func__);
 			radeon_dig_connector = kzalloc(sizeof(struct radeon_connector_atom_dig), GFP_KERNEL);
 			if (!radeon_dig_connector)
 				goto failed;
@@ -2334,6 +2355,7 @@ radeon_add_atom_connector(struct drm_device *dev,
 		}
 	}
 
+printf("%s 11\n", __func__);
 	if (radeon_connector->hpd.hpd == RADEON_HPD_NONE) {
 		if (i2c_bus->valid) {
 			connector->polled = DRM_CONNECTOR_POLL_CONNECT |

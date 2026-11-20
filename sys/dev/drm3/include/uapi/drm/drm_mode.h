@@ -260,10 +260,10 @@ struct drm_mode_modeinfo {
 };
 
 struct drm_mode_card_res {
-	__u64 fb_id_ptr;
-	__u64 crtc_id_ptr;
-	__u64 connector_id_ptr;
-	__u64 encoder_id_ptr;
+	kuint64cap_t fb_id_ptr;
+	kuint64cap_t crtc_id_ptr;
+	kuint64cap_t connector_id_ptr;
+	kuint64cap_t encoder_id_ptr;
 	__u32 count_fbs;
 	__u32 count_crtcs;
 	__u32 count_connectors;
@@ -275,7 +275,7 @@ struct drm_mode_card_res {
 };
 
 struct drm_mode_crtc {
-	__u64 set_connectors_ptr;
+	kuint64cap_t set_connectors_ptr;
 	__u32 count_connectors;
 
 	__u32 crtc_id; /**< Id */
@@ -354,11 +354,11 @@ struct drm_mode_get_plane {
 	 * @format_type_ptr: Pointer to ``__u32`` array of formats that are
 	 * supported by the plane. These formats do not require modifiers.
 	 */
-	__u64 format_type_ptr;
+	kuint64cap_t format_type_ptr;
 };
 
 struct drm_mode_get_plane_res {
-	__u64 plane_id_ptr;
+	kuint64cap_t plane_id_ptr;
 	__u32 count_planes;
 };
 
@@ -457,13 +457,13 @@ enum drm_mode_subconnector {
  */
 struct drm_mode_get_connector {
 	/** @encoders_ptr: Pointer to ``__u32`` array of object IDs. */
-	__u64 encoders_ptr;
+	kuint64cap_t encoders_ptr;
 	/** @modes_ptr: Pointer to struct drm_mode_modeinfo array. */
-	__u64 modes_ptr;
+	kuint64cap_t modes_ptr;
 	/** @props_ptr: Pointer to ``__u32`` array of property IDs. */
-	__u64 props_ptr;
+	kuint64cap_t props_ptr;
 	/** @prop_values_ptr: Pointer to ``__u64`` array of property values. */
-	__u64 prop_values_ptr;
+	kuint64cap_t prop_values_ptr;
 
 	/** @count_modes: Number of modes. */
 	__u32 count_modes;
@@ -589,9 +589,9 @@ struct drm_mode_property_enum {
  */
 struct drm_mode_get_property {
 	/** @values_ptr: Pointer to a ``__u64`` array. */
-	__u64 values_ptr;
+	kuint64cap_t values_ptr;
 	/** @enum_blob_ptr: Pointer to a struct drm_mode_property_enum array. */
-	__u64 enum_blob_ptr;
+	kuint64cap_t enum_blob_ptr;
 
 	/**
 	 * @prop_id: Object ID of the property which should be retrieved. Set
@@ -632,8 +632,8 @@ struct drm_mode_connector_set_property {
 #define DRM_MODE_OBJECT_ANY 0
 
 struct drm_mode_obj_get_properties {
-	__u64 props_ptr;
-	__u64 prop_values_ptr;
+	kuint64cap_t props_ptr;
+	kuint64cap_t prop_values_ptr;
 	__u32 count_props;
 	__u32 obj_id;
 	__u32 obj_type;
@@ -773,7 +773,7 @@ struct drm_mode_fb_dirty_cmd {
 	__u32 flags;
 	__u32 color;
 	__u32 num_clips;
-	__u64 clips_ptr;
+	kuint64cap_t clips_ptr;
 };
 
 struct drm_mode_mode_cmd {
@@ -828,9 +828,9 @@ struct drm_mode_crtc_lut {
 	__u32 gamma_size;
 
 	/* pointers to arrays */
-	__u64 red;
-	__u64 green;
-	__u64 blue;
+	kuint64cap_t red;
+	kuint64cap_t green;
+	kuint64cap_t blue;
 };
 
 struct drm_color_ctm {
@@ -1152,10 +1152,10 @@ struct drm_mode_destroy_dumb {
 struct drm_mode_atomic {
 	__u32 flags;
 	__u32 count_objs;
-	__u64 objs_ptr;
-	__u64 count_props_ptr;
-	__u64 props_ptr;
-	__u64 prop_values_ptr;
+	kuint64cap_t objs_ptr;
+	kuint64cap_t count_props_ptr;
+	kuint64cap_t props_ptr;
+	kuint64cap_t prop_values_ptr;
 	__u64 reserved;
 	__u64 user_data;
 };
@@ -1288,7 +1288,7 @@ struct drm_mode_list_lessees {
 	 *
 	 * Pointer to __u64 array of lessee ids
 	 */
-	__u64 lessees_ptr;
+	kuint64cap_t lessees_ptr;
 };
 
 /**
@@ -1315,7 +1315,7 @@ struct drm_mode_get_lease {
 	 *
 	 * Pointer to __u32 array of object ids.
 	 */
-	__u64 objects_ptr;
+	kuint64cap_t objects_ptr;
 };
 
 /**

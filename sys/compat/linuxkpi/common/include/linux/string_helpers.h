@@ -28,42 +28,6 @@
 #ifndef	_LINUXKPI_LINUX_STRING_HELPERS_H_
 #define	_LINUXKPI_LINUX_STRING_HELPERS_H_
 
-#include <sys/types.h>
-
-static inline const char *
-str_yes_no(bool value)
-{
-	if (value)
-		return "yes";
-	else
-		return "no";
-}
-
-static inline const char *
-str_on_off(bool value)
-{
-	if (value)
-		return "on";
-	else
-		return "off";
-}
-
-static inline const char *
-str_enabled_disabled(bool value)
-{
-	if (value)
-		return "enabled";
-	else
-		return "disabled";
-}
-
-static inline const char *
-str_enable_disable(bool value)
-{
-	if (value)
-		return "enable";
-	else
-		return "disable";
-}
+#include <linux/string_choices.h>
 
 #endif

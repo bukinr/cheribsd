@@ -70,7 +70,8 @@ static inline bool spsc_queue_push(struct spsc_queue *queue, struct spsc_node *n
 
 	preempt_disable();
 
-	tail = (struct spsc_node **)atomic_long_xchg(&queue->tail, (long)&node->next);
+	tail = (struct spsc_node **)atomic_swap_ptr((uintptr_t *)&queue->tail,
+            (uintptr_t)&node->next);
 	WRITE_ONCE(*tail, node);
 	atomic_inc(&queue->job_count);
 

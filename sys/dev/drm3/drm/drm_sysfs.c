@@ -205,6 +205,7 @@ static ssize_t enabled_show(struct device *device,
 	return sysfs_emit(buf, enabled ? "enabled\n" : "disabled\n");
 }
 
+#if 0
 static ssize_t edid_show(struct file *filp, struct kobject *kobj,
 			 struct bin_attribute *attr, char *buf, loff_t off,
 			 size_t count)
@@ -217,6 +218,7 @@ static ssize_t edid_show(struct file *filp, struct kobject *kobj,
 
 	return ret;
 }
+#endif
 
 static ssize_t modes_show(struct device *device,
 			   struct device_attribute *attr,
@@ -260,6 +262,7 @@ static struct attribute *connector_dev_attrs[] = {
 	NULL
 };
 
+#if 0
 static struct bin_attribute edid_attr = {
 	.attr.name = "edid",
 	.attr.mode = 0444,
@@ -271,10 +274,13 @@ static struct bin_attribute *connector_bin_attrs[] = {
 	&edid_attr,
 	NULL
 };
+#endif
 
 static const struct attribute_group connector_dev_group = {
 	.attrs = connector_dev_attrs,
+#if 0
 	.bin_attrs = connector_bin_attrs,
+#endif
 };
 
 static const struct attribute_group *connector_dev_groups[] = {

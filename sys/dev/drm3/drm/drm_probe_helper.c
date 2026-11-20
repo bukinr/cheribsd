@@ -834,7 +834,7 @@ static void output_poll_execute(struct work_struct *work)
 			drm_dbg_kms(dev, "[CONNECTOR:%d:%s] status updated from %s to %s\n",
 				    connector->base.id, connector->name,
 				    old, new);
-			drm_dbg_kms(dev, "[CONNECTOR:%d:%s] epoch counter %llu -> %llu\n",
+			drm_dbg_kms(dev, "[CONNECTOR:%d:%s] epoch counter %lu -> %lu\n",
 				    connector->base.id, connector->name,
 				    old_epoch_counter, connector->epoch_counter);
 
@@ -989,7 +989,7 @@ static bool check_connector_changed(struct drm_connector *connector)
 	connector->status = drm_helper_probe_detect(connector, NULL, false);
 
 	if (old_epoch_counter == connector->epoch_counter) {
-		drm_dbg_kms(dev, "[CONNECTOR:%d:%s] Same epoch counter %llu\n",
+		drm_dbg_kms(dev, "[CONNECTOR:%d:%s] Same epoch counter %lu\n",
 			    connector->base.id,
 			    connector->name,
 			    connector->epoch_counter);
@@ -1003,7 +1003,7 @@ static bool check_connector_changed(struct drm_connector *connector)
 		    drm_get_connector_status_name(old_status),
 		    drm_get_connector_status_name(connector->status));
 
-	drm_dbg_kms(dev, "[CONNECTOR:%d:%s] Changed epoch counter %llu => %llu\n",
+	drm_dbg_kms(dev, "[CONNECTOR:%d:%s] Changed epoch counter %lu => %lu\n",
 		    connector->base.id,
 		    connector->name,
 		    old_epoch_counter,

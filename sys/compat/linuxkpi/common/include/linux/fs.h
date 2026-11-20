@@ -43,10 +43,12 @@
 #include <linux/capability.h>
 #include <linux/wait_bit.h>
 #include <linux/kernel.h>
+#include <linux/mount.h>
 #include <linux/mutex.h>
 
 struct module;
 struct kiocb;
+struct iovec;
 struct dentry;
 struct page;
 struct file_lock;
@@ -132,13 +134,16 @@ do {									\
 
 typedef int (*filldir_t)(void *, const char *, int, off_t, u64, unsigned);
 
+typedef unsigned int fop_flags_t;
+
 struct file_operations {
 	struct module *owner;
-	ssize_t (*read)(struct linux_file *, char __user * __capability, size_t, off_t *);
-	ssize_t (*write)(struct linux_file *, const char __user * __capability, size_t, off_t *);
+	fop_flags_t fop_flags; /* Unused on FreeBSD. */
+	ssize_t (*read)(struct linux_file *, char __user *, size_t, off_t *);
+	ssize_t (*write)(struct linux_file *, const char __user *, size_t, off_t *);
 	unsigned int (*poll) (struct linux_file *, struct poll_table_struct *);
 	long (*unlocked_ioctl)(struct linux_file *, unsigned int, uintcap_t);
-	long (*compat_ioctl)(struct linux_file *, unsigned int, uintcap_t);
+	long (*compat_ioctl)(struct linux_file *, unsigned int, unsigned long);
 	int (*mmap)(struct linux_file *, struct vm_area_struct *);
 	int (*open)(struct inode *, struct file *);
 	int (*release)(struct inode *, struct linux_file *);
@@ -181,6 +186,14 @@ struct file_operations {
 	int (*setlease)(struct file *, long, struct file_lock **);
 #endif
 };
+
+#define	FOP_BUFFER_RASYNC	(1 << 0)
+#define	FOP_BUFFER_WASYNC	(1 << 1)
+#define	FOP_MMAP_SYNC		(1 << 2)
+#define	FOP_DIO_PARALLEL_WRITE	(1 << 3)
+#define	FOP_HUGE_PAGES		(1 << 4)
+#define	FOP_UNSIGNED_OFFSET	(1 << 5)
+
 #define	fops_get(fops)		(fops)
 #define	replace_fops(f, fops)	((f)->f_op = (fops))
 
@@ -360,7 +373,7 @@ i_size_write(struct inode *inode, loff_t i_size)
  * On failure, negative value.
  */
 static inline ssize_t
-simple_read_from_buffer(void __user * __capability dest, size_t read_size, loff_t *ppos,
+simple_read_from_buffer(void __user *dest, size_t read_size, loff_t *ppos,
     void *orig, size_t buf_size)
 {
 	void *read_pos = ((char *) orig) + *ppos;
@@ -410,13 +423,22 @@ int simple_attr_open(struct inode *inode, struct file *filp,
 
 int simple_attr_release(struct inode *inode, struct file *filp);
 
-ssize_t simple_attr_read(struct file *filp, char __user * __capability buf, size_t read_size,
+ssize_t simple_attr_read(struct file *filp, char __user *buf, size_t read_size,
     loff_t *ppos);
 
-ssize_t simple_attr_write(struct file *filp, const char __user * __capability buf,
+ssize_t simple_attr_write(struct file *filp, const char __user *buf,
     size_t write_size, loff_t *ppos);
 
-ssize_t simple_attr_write_signed(struct file *filp, const char __user * __capability buf,
+ssize_t simple_attr_write_signed(struct file *filp, const char __user *buf,
 	    size_t write_size, loff_t *ppos);
+
+static inline long
+compat_ptr_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
+{
+	if (file->f_op->unlocked_ioctl == NULL) {
+		return (-ENOIOCTLCMD);
+	}
+	return (file->f_op->unlocked_ioctl(file, cmd, arg));
+}
 
 #endif /* _LINUXKPI_LINUX_FS_H_ */

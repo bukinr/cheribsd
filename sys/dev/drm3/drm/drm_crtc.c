@@ -790,7 +790,7 @@ int drm_mode_setcrtc(struct drm_device *dev, void *data,
 		 */
 		if (!plane->format_default) {
 			if (!drm_plane_has_format(plane, fb->format->format, fb->modifier)) {
-				drm_dbg_kms(dev, "Invalid pixel format %p4cc, modifier 0x%llx\n",
+				drm_dbg_kms(dev, "Invalid pixel format %p4cc, modifier 0x%lx\n",
 					    &fb->format->format, fb->modifier);
 				ret = -EINVAL;
 				goto out;
@@ -836,7 +836,7 @@ int drm_mode_setcrtc(struct drm_device *dev, void *data,
 
 		for (i = 0; i < crtc_req->count_connectors; i++) {
 			connector_set[i] = NULL;
-			set_connectors_ptr = (uint32_t __user *)(unsigned long)crtc_req->set_connectors_ptr;
+			set_connectors_ptr = (uint32_t __user * __capability)crtc_req->set_connectors_ptr;
 			if (get_user(out_id, &set_connectors_ptr[i])) {
 				ret = -EFAULT;
 				goto out;

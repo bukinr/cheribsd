@@ -170,10 +170,11 @@ linux_rcu_cleaner_func(void *context, int pending __unused)
 
 		offset = (uintptr_t)rcu->func;
 
-		if (offset < LINUX_KFREE_RCU_OFFSET_MAX)
-			kfree((char *)rcu - offset);
-		else
-			rcu->func((struct rcu_head *)rcu);
+		if (offset < LINUX_KFREE_RCU_OFFSET_MAX) {
+			//kfree((char *)rcu - offset);
+		} else {
+			//rcu->func((struct rcu_head *)rcu);
+		}
 	}
 }
 

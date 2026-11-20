@@ -194,34 +194,41 @@ static int radeon_bo_move(struct ttm_buffer_object *bo, bool evict,
 	struct radeon_device *rdev;
 	int r;
 
+printf("%s\n", __func__);
 	if (new_mem->mem_type == TTM_PL_TT) {
 		r = radeon_ttm_tt_bind(bo->bdev, bo->ttm, new_mem);
 		if (r)
 			return r;
 	}
 
+printf("%s 1\n", __func__);
 	r = ttm_bo_wait_ctx(bo, ctx);
 	if (r)
 		return r;
 
+printf("%s 2\n", __func__);
 	rdev = radeon_get_rdev(bo->bdev);
 	if (!old_mem || (old_mem->mem_type == TTM_PL_SYSTEM &&
 			 bo->ttm == NULL)) {
+printf("%s 3\n", __func__);
 		ttm_bo_move_null(bo, new_mem);
 		goto out;
 	}
+printf("%s 3\n", __func__);
 	if (old_mem->mem_type == TTM_PL_SYSTEM &&
 	    new_mem->mem_type == TTM_PL_TT) {
 		ttm_bo_move_null(bo, new_mem);
 		goto out;
 	}
 
+printf("%s 4\n", __func__);
 	if (old_mem->mem_type == TTM_PL_TT &&
 	    new_mem->mem_type == TTM_PL_SYSTEM) {
 		radeon_ttm_tt_unbind(bo->bdev, bo->ttm);
 		ttm_bo_move_null(bo, new_mem);
 		goto out;
 	}
+printf("%s 5\n", __func__);
 	if (rdev->ring[radeon_copy_ring_index(rdev)].ready &&
 	    rdev->asic->copy.copy != NULL) {
 		if ((old_mem->mem_type == TTM_PL_SYSTEM &&
@@ -240,6 +247,7 @@ static int radeon_bo_move(struct ttm_buffer_object *bo, bool evict,
 		r = -ENODEV;
 	}
 
+printf("%s 6\n", __func__);
 	if (r) {
 		r = ttm_bo_move_memcpy(bo, ctx, new_mem);
 		if (r)
@@ -249,7 +257,9 @@ static int radeon_bo_move(struct ttm_buffer_object *bo, bool evict,
 out:
 	/* update statistics */
 	atomic64_add(bo->base.size, &rdev->num_bytes_moved);
+printf("%s 7\n", __func__);
 	radeon_bo_move_notify(bo);
+printf("%s done\n", __func__);
 	return 0;
 }
 
@@ -317,7 +327,7 @@ struct radeon_ttm_tt {
 	struct mm_struct		*usermm;
 	uint32_t			userflags;
 	bool bound;
-};
+} __subobject_use_container_bounds;
 
 /* prepare the sg table with the user pages */
 static int radeon_ttm_tt_pin_userptr(struct ttm_device *bdev, struct ttm_tt *ttm)
@@ -348,10 +358,10 @@ static int radeon_ttm_tt_pin_userptr(struct ttm_device *bdev, struct ttm_tt *ttm
 
 	do {
 		unsigned num_pages = ttm->num_pages - pinned;
-		uint64_t userptr = gtt->userptr + pinned * PAGE_SIZE;
+		uintptr_t userptr = gtt->userptr + pinned * PAGE_SIZE;
 		struct page **pages = ttm->pages + pinned;
 
-		r = get_user_pages(userptr, num_pages, write ? FOLL_WRITE : 0,
+		r = get_user_pages((void *)userptr, num_pages, write ? FOLL_WRITE : 0,
 				   pages);
 		if (r < 0)
 			goto release_pages;
@@ -506,6 +516,7 @@ static struct ttm_tt *radeon_ttm_tt_create(struct ttm_buffer_object *bo,
 	else
 		caching = ttm_cached;
 
+	caching = ttm_uncached;
 	if (ttm_sg_tt_init(&gtt->ttm, bo, page_flags, caching)) {
 		kfree(gtt);
 		return NULL;

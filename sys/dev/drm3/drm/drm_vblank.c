@@ -803,7 +803,7 @@ drm_crtc_vblank_helper_get_vblank_timestamp_internal(
 	ts_vblank_time = ktime_to_timespec64(*vblank_time);
 
 	drm_dbg_vbl(dev,
-		    "crtc %u : v p(%d,%d)@ %lld.%06ld -> %lld.%06ld [e %d us, %d rep]\n",
+		    "crtc %u : v p(%d,%d)@ %ld.%06ld -> %ld.%06ld [e %d us, %d rep]\n",
 		    pipe, hpos, vpos,
 		    (u64)ts_etime.tv_sec, ts_etime.tv_nsec / 1000,
 		    (u64)ts_vblank_time.tv_sec, ts_vblank_time.tv_nsec / 1000,
@@ -1391,7 +1391,7 @@ void drm_crtc_vblank_off(struct drm_crtc *crtc)
 		if (e->pipe != pipe)
 			continue;
 		drm_dbg_core(dev, "Sending premature vblank event on disable: "
-			     "wanted %llu, current %llu\n",
+			     "wanted %lu, current %lu\n",
 			     e->sequence, seq);
 		list_del(&e->base.link);
 		drm_vblank_put(dev, pipe);
@@ -1578,7 +1578,7 @@ static void drm_vblank_restore(struct drm_device *dev, unsigned int pipe)
 
 
 	drm_dbg_vbl(dev,
-		    "missed %d vblanks in %lld ns, frame duration=%d ns, hw_diff=%d\n",
+		    "missed %d vblanks in %ld ns, frame duration=%d ns, hw_diff=%d\n",
 		    diff, diff_ns, framedur_ns, cur_vblank - vblank->last);
 	vblank->last = (cur_vblank - diff) & max_vblank_count;
 }
@@ -1663,7 +1663,7 @@ static int drm_queue_vblank_event(struct drm_device *dev, unsigned int pipe,
 
 	seq = drm_vblank_count_and_time(dev, pipe, &now);
 
-	drm_dbg_core(dev, "event on vblank count %llu, current %llu, crtc %u\n",
+	drm_dbg_core(dev, "event on vblank count %lu, current %lu, crtc %u\n",
 		     req_seq, seq, pipe);
 
 	trace_drm_vblank_event_queued(file_priv, pipe, req_seq);
@@ -1845,7 +1845,7 @@ int drm_wait_vblank_ioctl(struct drm_device *dev, void *data,
 	if (req_seq != seq) {
 		int wait;
 
-		drm_dbg_core(dev, "waiting on vblank count %llu, crtc %u\n",
+		drm_dbg_core(dev, "waiting on vblank count %lu, crtc %u\n",
 			     req_seq, pipe);
 		wait = wait_event_interruptible_timeout(vblank->queue,
 			drm_vblank_passed(drm_vblank_count(dev, pipe), req_seq) ||
@@ -1900,7 +1900,7 @@ static void drm_handle_vblank_events(struct drm_device *dev, unsigned int pipe)
 		if (!drm_vblank_passed(seq, e->sequence))
 			continue;
 
-		drm_dbg_core(dev, "vblank event on %llu, current %llu\n",
+		drm_dbg_core(dev, "vblank event on %lu, current %lu\n",
 			     e->sequence, seq);
 
 		list_del(&e->base.link);

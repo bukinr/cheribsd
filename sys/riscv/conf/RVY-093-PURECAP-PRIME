@@ -19,4 +19,9 @@ nooptions	MD_ROOT
 nomakeoptions	MFS_IMAGE
 
 device		drm3
+device		radeon
+device		ttm
 options		COMPAT_LINUXKPI
+device		lindebugfs
+device		radeonkmsfw_oland
+device		radeonkmsfw

@@ -44,7 +44,7 @@
  */
 
 struct ttm_range_manager {
-	struct ttm_resource_manager manager;
+	struct ttm_resource_manager manager __subobject_use_container_bounds;
 	struct drm_mm mm;
 	spinlock_t lock;
 };
@@ -67,25 +67,32 @@ static int ttm_range_man_alloc(struct ttm_resource_manager *man,
 	unsigned long lpfn;
 	int ret;
 
+printf("%s\n", __func__);
 	lpfn = place->lpfn;
 	if (!lpfn)
 		lpfn = man->size;
 
+printf("%s 0\n", __func__);
 	node = kzalloc(struct_size(node, mm_nodes, 1), GFP_KERNEL);
 	if (!node)
 		return -ENOMEM;
 
+printf("%s 1\n", __func__);
 	mode = DRM_MM_INSERT_BEST;
 	if (place->flags & TTM_PL_FLAG_TOPDOWN)
 		mode = DRM_MM_INSERT_HIGH;
 
+printf("%s 1 0\n", __func__);
 	ttm_resource_init(bo, place, &node->base);
+printf("%s 1 1\n", __func__);
 
 	spin_lock(&rman->lock);
+printf("%s 2\n", __func__);
 	ret = drm_mm_insert_node_in_range(mm, &node->mm_nodes[0],
 					  PFN_UP(node->base.size),
 					  bo->page_alignment, 0,
 					  place->fpfn, lpfn, mode);
+printf("%s 3\n", __func__);
 	spin_unlock(&rman->lock);
 
 	if (unlikely(ret)) {
@@ -94,8 +101,10 @@ static int ttm_range_man_alloc(struct ttm_resource_manager *man,
 		return ret;
 	}
 
+printf("%s 4\n", __func__);
 	node->base.start = node->mm_nodes[0].start;
 	*res = &node->base;
+printf("%s done\n", __func__);
 	return 0;
 }
 

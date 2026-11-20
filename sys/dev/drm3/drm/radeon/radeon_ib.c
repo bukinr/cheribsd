@@ -63,24 +63,32 @@ int radeon_ib_get(struct radeon_device *rdev, int ring,
 {
 	int r;
 
+printf("%s\n", __func__);
+
 	r = radeon_sa_bo_new(&rdev->ring_tmp_bo, &ib->sa_bo, size, 256);
 	if (r) {
 		dev_err(rdev->dev, "failed to get a new IB (%d)\n", r);
 		return r;
 	}
 
+printf("%s\n", __func__);
 	radeon_sync_create(&ib->sync);
 
+printf("%s\n", __func__);
 	ib->ring = ring;
 	ib->fence = NULL;
+printf("%s ptr\n", __func__);
 	ib->ptr = radeon_sa_bo_cpu_addr(ib->sa_bo);
 	ib->vm = vm;
+printf("%s\n", __func__);
 	if (vm) {
+printf("%s vm\n", __func__);
 		/* ib pool is bound at RADEON_VA_IB_OFFSET in virtual address
 		 * space and soffset is the offset inside the pool bo
 		 */
 		ib->gpu_addr = drm_suballoc_soffset(ib->sa_bo) + RADEON_VA_IB_OFFSET;
 	} else {
+printf("%s novm\n", __func__);
 		ib->gpu_addr = radeon_sa_bo_gpu_addr(ib->sa_bo);
 	}
 	ib->is_const_ib = false;

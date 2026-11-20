@@ -499,7 +499,7 @@ static int drm_atomic_plane_set_property(struct drm_plane *plane,
 
 		if (val && !crtc) {
 			drm_dbg_atomic(dev,
-				       "[PROP:%d:%s] cannot find CRTC with ID %llu\n",
+				       "[PROP:%d:%s] cannot find CRTC with ID %lu\n",
 				       property->base.id, property->name, val);
 			return -EACCES;
 		}
@@ -527,7 +527,7 @@ static int drm_atomic_plane_set_property(struct drm_plane *plane,
 	} else if (property == plane->rotation_property) {
 		if (!is_power_of_2(val & DRM_MODE_ROTATE_MASK)) {
 			drm_dbg_atomic(plane->dev,
-				       "[PLANE:%d:%s] bad rotation bitmask: 0x%llx\n",
+				       "[PLANE:%d:%s] bad rotation bitmask: 0x%lx\n",
 				       plane->base.id, plane->name, val);
 			return -EINVAL;
 		}
@@ -554,7 +554,7 @@ static int drm_atomic_plane_set_property(struct drm_plane *plane,
 	} else if (property == plane->hotspot_x_property) {
 		if (plane->type != DRM_PLANE_TYPE_CURSOR) {
 			drm_dbg_atomic(plane->dev,
-				       "[PLANE:%d:%s] is not a cursor plane: 0x%llx\n",
+				       "[PLANE:%d:%s] is not a cursor plane: 0x%lx\n",
 				       plane->base.id, plane->name, val);
 			return -EINVAL;
 		}
@@ -562,7 +562,7 @@ static int drm_atomic_plane_set_property(struct drm_plane *plane,
 	} else if (property == plane->hotspot_y_property) {
 		if (plane->type != DRM_PLANE_TYPE_CURSOR) {
 			drm_dbg_atomic(plane->dev,
-				       "[PLANE:%d:%s] is not a cursor plane: 0x%llx\n",
+				       "[PLANE:%d:%s] is not a cursor plane: 0x%lx\n",
 				       plane->base.id, plane->name, val);
 			return -EINVAL;
 		}
@@ -679,7 +679,7 @@ static int drm_atomic_connector_set_property(struct drm_connector *connector,
 
 		if (val && !crtc) {
 			drm_dbg_atomic(dev,
-				       "[PROP:%d:%s] cannot find CRTC with ID %llu\n",
+				       "[PROP:%d:%s] cannot find CRTC with ID %lu\n",
 				       property->base.id, property->name, val);
 			return -EACCES;
 		}
@@ -1366,10 +1366,10 @@ int drm_mode_atomic_ioctl(struct drm_device *dev,
 			  void *data, struct drm_file *file_priv)
 {
 	struct drm_mode_atomic *arg = data;
-	uint32_t __user *objs_ptr = (uint32_t __user *)(unsigned long)(arg->objs_ptr);
-	uint32_t __user *count_props_ptr = (uint32_t __user *)(unsigned long)(arg->count_props_ptr);
-	uint32_t __user *props_ptr = (uint32_t __user *)(unsigned long)(arg->props_ptr);
-	uint64_t __user *prop_values_ptr = (uint64_t __user *)(unsigned long)(arg->prop_values_ptr);
+	uint32_t __user *objs_ptr = (uint32_t __user * __capability)(arg->objs_ptr);
+	uint32_t __user *count_props_ptr = (uint32_t __user * __capability)(arg->count_props_ptr);
+	uint32_t __user *props_ptr = (uint32_t __user * __capability)(arg->props_ptr);
+	uint64_t __user *prop_values_ptr = (uint64_t __user * __capability)(arg->prop_values_ptr);
 	unsigned int copied_objs, copied_props;
 	struct drm_atomic_state *state;
 	struct drm_modeset_acquire_ctx ctx;

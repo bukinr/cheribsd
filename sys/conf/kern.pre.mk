@@ -294,11 +294,31 @@ DRM_CFLAGS=	${CFLAGS} ${DRM_INCLUDES}		\
 		-DCONFIG_ARCH_HAVE_NMI_SAFE_CMPXCHG	\
 		-DCONFIG_FB				\
 		-DCONFIG_64BIT				\
-		-DCONFIG_ARM64
+		-DCONFIG_PCI				\
+		-DCONFIG_SUSPEND				\
+		-DCONFIG_SMP					\
+		-DCONFIG_PROC_FS				\
+		-DCONFIG_NEED_SG_DMA_LENGTH			\
+		-DCONFIG_DMI					\
+		-DCONFIG_ARCH_HAVE_NMI_SAFE_CMPXCHG		\
+		-DCONFIG_VIDEO_CMDLINE				\
+		-DCONFIG_DEBUG_FS				\
+		-DCONFIG_DRM_CLIENT				\
+		-DCONFIG_DRM_CLIENT_SETUP			\
+		-DCONFIG_DRM_DRAW				\
+		-DCONFIG_DRM_EXEC				\
+		-DCONFIG_DRM_FBDEV_EMULATION			\
+		-DCONFIG_DRM_FBDEV_OVERALLOC=100		\
+		-DCONFIG_DRM_CLIENT_DEFAULT_FBDEV		\
+		-DCONFIG_DRM_CLIENT_DEFAULT="\"fbdev\""
 
 DRM_CFLAGS+=	-include ${S}/dev/drm3/drm/drm_os_freebsd.h
 DRM_CFLAGS+=	'-DKBUILD_MODNAME="DRMv6.6"' -Wno-unused
 DRM_CFLAGS+=	-Wno-cast-qual -Wno-pointer-arith -Wno-missing-prototypes
+
+#radeon build
+DRM_CFLAGS+=	-Wno-gnu-variable-sized-type-not-at-end -Wno-missing-prototypes -Wno-unused-const-variable -Wno-unused-but-set-variable -Wno-macro-redefined -Wno-cast-qual -Wno-unused-function 
+
 # Complain about unsigned long long versus uint64_t, remove -Wformat for now
 .if ${MACHINE_CPUARCH} == "aarch64"
 DRM_CFLAGS+=	-Wno-format

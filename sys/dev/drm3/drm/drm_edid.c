@@ -2134,6 +2134,8 @@ drm_do_probe_ddc_edid(void *data, u8 *buf, unsigned int block, size_t len)
 	unsigned char xfers = segment ? 3 : 2;
 	int ret, retries = 5;
 
+printf("%s\n", __func__);
+
 	/*
 	 * The core I2C driver will automatically retry the transfer if the
 	 * adapter reports EAGAIN. However, we find that bit-banging transfers
@@ -2142,6 +2144,7 @@ drm_do_probe_ddc_edid(void *data, u8 *buf, unsigned int block, size_t len)
 	 * of the individual block a few times seems to overcome this.
 	 */
 	do {
+printf("%s do\n", __func__);
 		struct i2c_msg msgs[] = {
 			{
 				.addr	= DDC_SEGMENT_ADDR,
@@ -2165,7 +2168,10 @@ drm_do_probe_ddc_edid(void *data, u8 *buf, unsigned int block, size_t len)
 		 * Avoid sending the segment addr to not upset non-compliant
 		 * DDC monitors.
 		 */
-		ret = i2c_transfer(adapter, &msgs[3 - xfers], xfers);
+printf("%s 1\n", __func__);
+		//ret = i2c_transfer(adapter, &msgs[3 - xfers], xfers);
+		ret = i2c_transfer(adapter, msgs + 3 - xfers, xfers);
+printf("%s 2\n", __func__);
 
 		if (ret == -ENXIO) {
 			DRM_DEBUG_KMS("drm: skipping non-existent adapter %s\n",
@@ -2174,6 +2180,7 @@ drm_do_probe_ddc_edid(void *data, u8 *buf, unsigned int block, size_t len)
 		}
 	} while (ret != xfers && --retries);
 
+printf("%s ok\n", __func__);
 	return ret == xfers ? 0 : -1;
 }
 
@@ -6907,7 +6914,7 @@ static int _drm_edid_connector_property_update(struct drm_connector *connector,
 			connector->epoch_counter++;
 			drm_dbg_kms(dev, "[CONNECTOR:%d:%s] EDID changed, epoch counter %llu\n",
 				    connector->base.id, connector->name,
-				    connector->epoch_counter);
+				    (unsigned long long)connector->epoch_counter);
 		}
 	}
 

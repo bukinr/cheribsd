@@ -812,8 +812,11 @@ static int radeon_hw_i2c_xfer(struct i2c_adapter *i2c_adap,
 	struct radeon_i2c_bus_rec *rec = &i2c->rec;
 	int ret = 0;
 
+printf("%s\n", __func__);
+
 	mutex_lock(&i2c->mutex);
 
+printf("%s 1\n", __func__);
 	switch (rdev->family) {
 	case CHIP_R100:
 	case CHIP_RV100:
