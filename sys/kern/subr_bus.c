@@ -3120,7 +3120,6 @@ resource_list_reserve(struct resource_list *rl, device_t bus, device_t child,
 	r = resource_list_alloc(rl, bus, child, type, rid, start, end, count,
 	    flags);
 	if (r != NULL) {
-printf("%s: reserve list alloc fail\n", __func__);
 		rle = resource_list_find(rl, type, *rid);
 		rle->flags |= RLE_RESERVED;
 	}
@@ -3169,17 +3168,14 @@ resource_list_alloc(struct resource_list *rl, device_t bus, device_t child,
 	int isdefault = RMAN_IS_DEFAULT_RANGE(start, end);
 
 	if (passthrough) {
-printf("%s: propagate to parent\n", __func__);
 		return (BUS_ALLOC_RESOURCE(device_get_parent(bus), child,
 		    type, rid, start, end, count, flags));
 	}
 
 	rle = resource_list_find(rl, type, *rid);
 
-	if (!rle) {
-		printf("%s: no res of type %d rid %d\n", __func__, type, *rid);
+	if (!rle)
 		return (NULL);		/* no resource of that type/rid */
-	}
 
 	if (rle->res) {
 		if (rle->flags & RLE_RESERVED) {
